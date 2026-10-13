@@ -22,6 +22,7 @@ echo      Basarili!
 REM ADIM 2: Android klasorune git
 echo [2/3] Gradle build baslatiliyor...
 cd android
+if not defined ANDROID_HOME set ANDROID_HOME=C:\Users\hkk02\AppData\Local\Android\Sdk
 if errorlevel 1 (
     echo HATA: android klasoru bulunamadi!
     pause

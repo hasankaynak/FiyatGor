@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "MD Ticaret",
+    "slug": "fiyatgor",
+    "version": "1.0.12",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050a14"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fiyatgor.app"
+    },
+    "android": {
+      "package": "com.fiyatgor.app",
+      "permissions": [
+        "CAMERA",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#050a14"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Barkod okuyabilmesi için kamera erişimi gereklidir."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Sesli arama yapmak için mikrofon izni gereklidir.",
+          "speechRecognitionPermission": "Sesli arama için ses tanıma izni gereklidir."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a4f0b98a-c3c8-4664-80ab-a170b68e40f4"
+      }
+    }
+  }
+}

@@ -72,8 +72,8 @@ const GITHUB_REPO = 'FiyatGor';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const GITHUB_RAW_VERSION_URL = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/version.json`;
 const FALLBACK_UPDATE_URL = 'http://185.136.205.19:3000/updates/version.json';
-const CURRENT_VERSION = '1.0.13';
-const CURRENT_VERSION_CODE = 13;
+const CURRENT_VERSION = '1.0.14';
+const CURRENT_VERSION_CODE = 14;
 
 const parseVersion = (v: string): number[] => {
   const clean = (v || '').replace(/^v/i, '').trim();
@@ -175,11 +175,6 @@ export default function App() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
 
-  // Ürün İsmi Düzenleme State'leri
-  const [editNameModalVisible, setEditNameModalVisible] = useState(false);
-  const [editNameInput, setEditNameInput] = useState('');
-  const [isUpdatingName, setIsUpdatingName] = useState(false);
-
   // Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastFadeAnim = useRef(new Animated.Value(0)).current;
@@ -263,53 +258,6 @@ export default function App() {
     }
   };
 
-  const openEditNameModal = () => {
-    if (!product || !product.stock_code || product.stock_code === '---') return;
-    setEditNameInput(product.name || '');
-    setEditNameModalVisible(true);
-  };
-
-  const handleUpdateProductName = async () => {
-    const trimmed = editNameInput.trim();
-    if (!trimmed) {
-      Alert.alert('Uyarı', 'Ürün adı boş olamaz.');
-      return;
-    }
-    if (!product || !product.stock_code || product.stock_code === '---') {
-      Alert.alert('Hata', 'Geçerli bir ürün seçilmedi.');
-      return;
-    }
-
-    setIsUpdatingName(true);
-    try {
-      const escapedName = trimmed.replace(/'/g, "''");
-      const escapedCode = product.stock_code.replace(/'/g, "''");
-      const q = `UPDATE STOKLAR SET sto_isim = '${escapedName}', sto_lastup_date = GETDATE() WHERE sto_kod = '${escapedCode}'; SELECT 1 AS result_fix;`;
-      
-      const response = await axios.post(API_URL, { query: q }, { timeout: 15000 });
-      if (!response.data?.success && response.data?.error) {
-        throw new Error(response.data.error);
-      }
-
-      const db = dbRef.current;
-      if (db) {
-        await db.runAsync(
-          'UPDATE products SET name = ?, name_normalized = ? WHERE stock_code = ?',
-          [trimmed, normalizeText(trimmed), product.stock_code]
-        );
-      }
-
-      setProduct((prev: any) => prev ? { ...prev, name: trimmed, name_normalized: normalizeText(trimmed) } : null);
-      setSearchResults((prev: any[]) => prev.map(p => p.stock_code === product.stock_code ? { ...p, name: trimmed, name_normalized: normalizeText(trimmed) } : p));
-
-      setEditNameModalVisible(false);
-      showToast('Ürün ismi Mikro ERP ve cihazda güncellendi.');
-    } catch (err: any) {
-      Alert.alert('Güncelleme Hatası', err.response?.data?.error || err.message || 'İsim güncellenemedi.');
-    } finally {
-      setIsUpdatingName(false);
-    }
-  };
 
   useEffect(() => {
     if (isAppReady && isConnected && !hasInitialSync) {
@@ -1065,15 +1013,10 @@ export default function App() {
 
                   {/* Product Title Card */}
                   <View style={styles.productTitleCard}>
-                    <View style={{ flex: 1, marginRight: 10 }}>
+                    <View style={{ flex: 1 }}>
                       <Text style={styles.productCategoryLabel}>TANIMLI ÜRÜN ADI</Text>
                       <Text style={styles.productNameText}>{product.name}</Text>
                     </View>
-                    {product.stock_code && product.stock_code !== '---' && (
-                      <TouchableOpacity style={styles.titleEditBtn} onPress={openEditNameModal} activeOpacity={0.7}>
-                        <Ionicons name="pencil" size={18} color={colors.primary} />
-                      </TouchableOpacity>
-                    )}
                   </View>
 
                   {/* 4-Column Spec Grid */}
@@ -1246,27 +1189,33 @@ export default function App() {
           {/* 6. STICKY BOTTOM INDUSTRIAL COMMAND DECK (Product Detail / Scan Next) */}
           {product && (
             <View style={styles.bottomCommandDeck}>
-              <TouchableOpacity style={styles.bottomSecondaryBtn} onPress={resetScan} activeOpacity={0.7}>
-                <Ionicons name="barcode-outline" size={18} color={colors.primary} />
-                <Text style={styles.bottomSecondaryBtnText}>YENİ OKUTMA</Text>
-              </TouchableOpacity>
+              {product.name === 'Ürün Bulunamadı' ? (
+                <>
+                  <TouchableOpacity style={styles.bottomSecondaryBtn} onPress={resetScan} activeOpacity={0.7}>
+                    <Ionicons name="barcode-outline" size={18} color={colors.primary} />
+                    <Text style={styles.bottomSecondaryBtnText}>YENİ OKUTMA</Text>
+                  </TouchableOpacity>
 
-              {product.stock_code && product.stock_code !== '---' ? (
-                <TouchableOpacity style={styles.bottomPrimaryBtn} onPress={openEditNameModal} activeOpacity={0.8}>
-                  <Ionicons name="pencil-outline" size={18} color="#fff" />
-                  <Text style={styles.bottomPrimaryBtnText}>İSMİ DÜZENLE</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.bottomReportBtn, isAlreadyReported && styles.bottomReportBtnReported]} 
+                    onPress={() => !isAlreadyReported && setReportModalVisible(true)}
+                    disabled={isAlreadyReported}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="paper-plane-outline" size={18} color="#fff" />
+                    <Text style={styles.bottomReportBtnText}>
+                      {isAlreadyReported ? 'BİLDİRİLDİ' : 'EKSİK BARKOD BİLDİR'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <TouchableOpacity 
-                  style={[styles.bottomReportBtn, isAlreadyReported && styles.bottomReportBtnReported]} 
-                  onPress={() => !isAlreadyReported && setReportModalVisible(true)}
-                  disabled={isAlreadyReported}
+                  style={[styles.bottomPrimaryBtn, { flex: 1, backgroundColor: colors.secondary }]} 
+                  onPress={resetScan} 
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="paper-plane-outline" size={18} color="#fff" />
-                  <Text style={styles.bottomReportBtnText}>
-                    {isAlreadyReported ? 'BİLDİRİLDİ' : 'EKSİK BARKOD BİLDİR'}
-                  </Text>
+                  <Ionicons name="barcode-outline" size={20} color="#fff" />
+                  <Text style={[styles.bottomPrimaryBtnText, { fontSize: 14, letterSpacing: 0.8 }]}>YENİ BARKOD OKUT</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1399,81 +1348,6 @@ export default function App() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* 8. ÜRÜN İSMİ DÜZENLEME MODALI */}
-      <Modal
-        isVisible={editNameModalVisible}
-        onBackdropPress={() => { if (!isUpdatingName) { Keyboard.dismiss(); setEditNameModalVisible(false); } }}
-        onBackButtonPress={() => { if (!isUpdatingName) { Keyboard.dismiss(); setEditNameModalVisible(false); } }}
-        backdropOpacity={0.75}
-        avoidKeyboard={true}
-        style={styles.modalCentered}
-      >
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.modalCardContainer}>
-            <View style={[styles.modalTopAmberStrip, { backgroundColor: colors.tertiary }]} />
-
-            <View style={styles.modalCardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={[styles.modalWarningIconBox, { backgroundColor: colors.tertiaryContainer, borderColor: colors.tertiary }]}>
-                  <Ionicons name="pencil" size={20} color={colors.tertiary} />
-                </View>
-                <View>
-                  <Text style={styles.modalMainTitle}>Ürün İsmini Düzenle</Text>
-                  <Text style={styles.modalSubtitle}>Mikro ERP ve el terminalinde anlık güncellenir</Text>
-                </View>
-              </View>
-              <TouchableOpacity onPress={() => { if (!isUpdatingName) { Keyboard.dismiss(); setEditNameModalVisible(false); } }}>
-                <Ionicons name="close" size={22} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalBarcodeStrip}>
-              <Text style={styles.modalBarcodeStripLabel}>STOK KODU: <Text style={{ color: colors.text, fontWeight: '700' }}>{product?.stock_code}</Text></Text>
-              {!!product?.barcode && (
-                <Text style={styles.modalBarcodeStripLabel}>BARKOD: <Text style={{ color: colors.text, fontWeight: '700' }}>{product?.barcode}</Text></Text>
-              )}
-            </View>
-
-            <TextInput
-              style={[styles.modalTextInput, { height: 95 }]}
-              placeholder="Yeni ürün adını girin..."
-              placeholderTextColor={colors.textOutline}
-              multiline
-              maxLength={127}
-              value={editNameInput}
-              onChangeText={setEditNameInput}
-              autoFocus={true}
-              editable={!isUpdatingName}
-            />
-
-            <Text style={{ alignSelf: 'flex-end', color: colors.textOutline, fontSize: 11, marginBottom: 16, fontWeight: '600' }}>
-              {editNameInput.length} / 127
-            </Text>
-
-            <TouchableOpacity 
-              style={[styles.modalSendActionBtn, { backgroundColor: colors.tertiary }]} 
-              onPress={handleUpdateProductName} 
-              disabled={isUpdatingName}
-              activeOpacity={0.85}
-            >
-              {isUpdatingName ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.modalSendActionBtnText}>MİKRO ERP'YE KAYDET</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.modalDismissBtn} 
-              onPress={() => { Keyboard.dismiss(); setEditNameModalVisible(false); }}
-              disabled={isUpdatingName}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.modalDismissBtnText}>Vazgeç</Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
     </SafeAreaView>
   );

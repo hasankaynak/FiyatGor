@@ -1,6 +1,6 @@
 {
-  "version": "1.0.12",
-  "versionCode": 12,
-  "url": "https://github.com/hasankaynak/FiyatGor/releases/download/v1.0.12/FiyatGor.apk",
-  "releaseNotes": "MD Ticaret Fiyat Gör ve Stok Mobil v1.0.12\n• GitHub Release ve otomatik bulut güncelleme entegrasyonu tamamlandı.\n• Ürün ismi değiştirme / düzenleme özelliği (Mikro ve telefon hafızası anlık senkronize).\n• Mikro iskonto oranları ve son fiyat tarihi entegrasyonu.\n• Depo bazlı dinamik stok dökümü ve sesli arama desteği."
+  "version": "1.0.13",
+  "versionCode": 13,
+  "url": "https://github.com/hasankaynak/FiyatGor/releases/download/v1.0.13/FiyatGor.apk",
+  "releaseNotes": "MD Ticaret Fiyat Gör ve Stok Mobil v1.0.13\n• Google Stitch Industrial Utilitarian Modern arayüz tasarımı uygulandı.\n• Neon reticle vizörü ve animasyonlu lazer tarayıcı HUD göstergeleri eklendi.\n• Net satış fiyatı, iskonto rozetleri ve çoklu depo stok tabloları yenilendi.\n• Eksik ürün bildirim modalı ve hızlı etiket seçimleri geliştirildi."
 }

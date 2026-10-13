@@ -18,7 +18,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
-  Linking,
   useColorScheme
 } from 'react-native';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
@@ -27,16 +26,14 @@ import * as SQLite from 'expo-sqlite';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import Modal from 'react-native-modal';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// GÜNCELLENMİŞ DİREKT SQL KODUNUZ
+// MİKRO ERP SQL SORGUSU
 const MIKRO_SQL_QUERY = `
   SELECT 
     bt.bar_kodu AS barcode,
@@ -117,9 +114,10 @@ const normalizeText = (text: string) => {
 
 export default function App() {
   const colorScheme = useColorScheme();
-  const [manualTheme, setManualTheme] = useState<'system' | 'dark' | 'light'>('system');
+  const [manualTheme, setManualTheme] = useState<'system' | 'dark' | 'light'>('dark');
   const isDark = manualTheme === 'system' ? colorScheme === 'dark' : manualTheme === 'dark';
   const styles = getStyles(isDark);
+  const colors = getThemeColors(isDark);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -166,11 +164,13 @@ export default function App() {
   const [showDepoStok, setShowDepoStok] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [hasInitialSync, setHasInitialSync] = useState(false);
+  
   // Kullanıcı adı state'leri
   const [userName, setUserName] = useState<string>('');
   const [userNameInput, setUserNameInput] = useState('');
   const [showUserNameModal, setShowUserNameModal] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
+  
   // İndirme stateleri
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -180,16 +180,45 @@ export default function App() {
   const [editNameInput, setEditNameInput] = useState('');
   const [isUpdatingName, setIsUpdatingName] = useState(false);
 
+  // Toast State
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastFadeAnim = useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    Animated.sequence([
+      Animated.timing(toastFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.delay(2200),
+      Animated.timing(toastFadeAnim, { toValue: 0, duration: 300, useNativeDriver: true })
+    ]).start(() => setToastMessage(null));
+  };
+
   const dbRef = useRef<any>(null);
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const laserAnim = useRef(new Animated.Value(0)).current;
 
+  // Sync Animation
   useEffect(() => {
     if (isSyncing) {
       Animated.loop(
-        Animated.timing(rotateAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true })
+        Animated.timing(rotateAnim, { toValue: 1, duration: 1200, easing: Easing.linear, useNativeDriver: true })
       ).start();
-    } else { rotateAnim.setValue(0); }
+    } else {
+      rotateAnim.setValue(0);
+    }
   }, [isSyncing]);
+
+  // Laser Scan Line Animation for HUD
+  useEffect(() => {
+    if (cameraActive || !product) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(laserAnim, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(laserAnim, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
+        ])
+      ).start();
+    }
+  }, [cameraActive, product]);
 
   // İnternet bağlantısını izle
   useEffect(() => {
@@ -208,11 +237,9 @@ export default function App() {
           setUserName(savedName);
           setIsAppReady(true);
         } else {
-          // Kullanıcı adı yoksa modal göster
           setShowUserNameModal(true);
         }
       } catch (error) {
-        console.log('Kullanıcı adı yüklenemedi:', error);
         setShowUserNameModal(true);
       }
     };
@@ -230,6 +257,7 @@ export default function App() {
       setUserName(userNameInput.trim());
       setShowUserNameModal(false);
       setIsAppReady(true);
+      showToast(`Hoş geldin, ${userNameInput.trim()}`);
     } catch (error) {
       Alert.alert('Hata', 'Kullanıcı adı kaydedilemedi.');
     }
@@ -254,7 +282,6 @@ export default function App() {
 
     setIsUpdatingName(true);
     try {
-      // 1. Mikro SQL Sunucusunda güncelle
       const escapedName = trimmed.replace(/'/g, "''");
       const escapedCode = product.stock_code.replace(/'/g, "''");
       const q = `UPDATE STOKLAR SET sto_isim = '${escapedName}', sto_lastup_date = GETDATE() WHERE sto_kod = '${escapedCode}'; SELECT 1 AS result_fix;`;
@@ -264,7 +291,6 @@ export default function App() {
         throw new Error(response.data.error);
       }
 
-      // 2. Lokal SQLite'ta güncelle
       const db = dbRef.current;
       if (db) {
         await db.runAsync(
@@ -273,12 +299,11 @@ export default function App() {
         );
       }
 
-      // 3. Mevcut ürün state'ini ve arama listesini güncelle
       setProduct((prev: any) => prev ? { ...prev, name: trimmed, name_normalized: normalizeText(trimmed) } : null);
       setSearchResults((prev: any[]) => prev.map(p => p.stock_code === product.stock_code ? { ...p, name: trimmed, name_normalized: normalizeText(trimmed) } : p));
 
       setEditNameModalVisible(false);
-      Alert.alert('Başarılı', 'Ürün ismi Mikro ve telefonda güncellendi.');
+      showToast('Ürün ismi Mikro ERP ve cihazda güncellendi.');
     } catch (err: any) {
       Alert.alert('Güncelleme Hatası', err.response?.data?.error || err.message || 'İsim güncellenemedi.');
     } finally {
@@ -322,12 +347,11 @@ export default function App() {
 
       if (result && result.uri) {
         setIsDownloading(false);
-        // APK'yı yükle
         const contentUri = await FileSystem.getContentUriAsync(result.uri);
 
         await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
           data: contentUri,
-          flags: 268435457, // Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK
+          flags: 268435457,
           type: 'application/vnd.android.package-archive',
         });
       } else {
@@ -372,9 +396,7 @@ export default function App() {
             downloadUrl = apkAsset?.browser_download_url || `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/FiyatGor.apk`;
           }
         }
-      } catch (ghErr) {
-        // GitHub API limiti veya 404 olursa version.json'a geç
-      }
+      } catch (ghErr) {}
 
       // 2. GitHub Raw version.json kontrolü
       if (!updateFound) {
@@ -431,27 +453,22 @@ export default function App() {
     }
   };
 
-  // \u0130lk a\u00e7\u0131l\u0131\u015fta g\u00fcncelleme kontrol\u00fc
   useEffect(() => {
     const checkUpdate = async () => {
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
-        // 2 saniye bekle sonra kontrol et
         setTimeout(() => checkForUpdates(true), 2000);
       }
     };
     checkUpdate();
   }, []);
 
-  // Depo bazl\u0131 stok \u00e7ekme fonksiyonu - \u00d6nce lokal, sonra API
   const fetchDepoStok = async (stokKodu: string) => {
     setIsLoadingDepoStok(true);
     setShowDepoStok(true);
 
     try {
       const db = dbRef.current;
-
-      // 1. \u00d6nce lokal SQLite'dan oku
       const localResult: any[] = await db.getAllAsync(
         'SELECT depo_no as DepoNo, depo_adi as DepoAdi, miktar as Miktar FROM depo_stoklar WHERE stock_code = ? ORDER BY depo_no',
         [stokKodu]
@@ -461,7 +478,6 @@ export default function App() {
         setDepoStoklar(localResult);
       }
 
-      // 2. \u0130nternet varsa API'den g\u00fcncel veriyi \u00e7ek
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
         try {
@@ -470,19 +486,13 @@ export default function App() {
             setDepoStoklar(response.data.depolar);
           }
         } catch (apiError: any) {
-          // API hatas\u0131 olsa bile lokal veriyi g\u00f6ster
-          console.log('API Depo stok hatas\u0131 (lokal veri kullan\u0131l\u0131yor):', apiError.message);
+          console.log('API Depo stok hatası (lokal veri kullanılıyor):', apiError.message);
         }
       } else if (localResult.length === 0) {
-        // \u0130nternet yok ve lokal veri de yok
-        Alert.alert(
-          '\u0130nternet Ba\u011flant\u0131s\u0131 Yok',
-          'Depo stok bilgisi i\u00e7in internete ba\u011flan\u0131n veya verileri g\u00fcncelleyin.',
-          [{ text: 'Tamam' }]
-        );
+        showToast('Depo stoku için internet bağlantısı gerekir.');
       }
     } catch (error: any) {
-      console.log('Depo stok hatas\u0131:', error.message);
+      console.log('Depo stok hatası:', error.message);
       setDepoStoklar([]);
     } finally {
       setIsLoadingDepoStok(false);
@@ -501,7 +511,6 @@ export default function App() {
 
   useEffect(() => {
     async function initDB() {
-      // DB Init - Yeni versiyon ile depo stoklar\u0131 tablosu eklendi
       const db = await SQLite.openDatabaseAsync('fiyatgor_mikro_v9.db');
       dbRef.current = db;
       await db.execAsync(`
@@ -539,7 +548,6 @@ export default function App() {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      // 1. Önce ürünleri çek
       const response = await axios.post(API_URL, { query: MIKRO_SQL_QUERY }, { timeout: 60000 });
       const remoteProducts = response.data?.data;
       if (!remoteProducts) {
@@ -550,7 +558,6 @@ export default function App() {
 
       const db = dbRef.current;
       if (db) {
-        // Ürünleri kaydet
         await db.withTransactionAsync(async () => {
           for (const item of remoteProducts) {
             await db.runAsync(
@@ -560,16 +567,12 @@ export default function App() {
           }
         });
 
-        // 2. Depo stoklar\u0131n\u0131 \u00e7ek
         try {
           const depoResponse = await axios.get(`${API_BASE_URL}/tum-depo-stoklar`, { timeout: 120000 });
           const depoData = depoResponse.data?.data;
 
           if (depoData && depoData.length > 0) {
-            // \u00d6nce eski depo stoklar\u0131n\u0131 temizle
             await db.runAsync('DELETE FROM depo_stoklar');
-
-            // Yeni depo stoklar\u0131n\u0131 kaydet
             await db.withTransactionAsync(async () => {
               for (const depo of depoData) {
                 await db.runAsync(
@@ -580,21 +583,22 @@ export default function App() {
             });
 
             await updateStats();
-            if (!silent) Alert.alert('Tamamland\u0131', `${remoteProducts.length} \u00fcr\u00fcn ve ${depoData.length} depo stok kayd\u0131 g\u00fcncellendi.`);
+            if (!silent) Alert.alert('Tamamlandı', `${remoteProducts.length} ürün ve ${depoData.length} depo stok kaydı senkronize edildi.`);
+            else showToast(`${remoteProducts.length} ürün verisi senkronize.`);
           } else {
             await updateStats();
-            if (!silent) Alert.alert('Tamamland\u0131', `${remoteProducts.length} \u00fcr\u00fcn g\u00fcncellendi. (Depo stok bulunamad\u0131)`);
+            if (!silent) Alert.alert('Tamamlandı', `${remoteProducts.length} ürün güncellendi.`);
           }
         } catch (depoError: any) {
-          // Depo stok hatas\u0131 olsa bile \u00fcr\u00fcnler kaydedildi
           await updateStats();
-          if (!silent) Alert.alert('K\u0131smi Tamamland\u0131', `${remoteProducts.length} \u00fcr\u00fcn g\u00fcncellendi.\nDepo stoklar\u0131 al\u0131namad\u0131: ${depoError.message}`);
+          if (!silent) Alert.alert('Kısmi Tamamlandı', `${remoteProducts.length} ürün güncellendi.\nDepo stokları alınamadı: ${depoError.message}`);
         }
       }
     } catch (error: any) {
-      if (!silent) Alert.alert('Hata', error.message || 'Sunucu hatas\u0131.');
+      if (!silent) Alert.alert('Hata', error.message || 'Sunucu hatası.');
+    } finally {
+      setIsSyncing(false);
     }
-    finally { setIsSyncing(false); }
   };
 
   const handleBarCodeScanned = async ({ data }: any) => {
@@ -612,7 +616,6 @@ export default function App() {
         setProduct(result);
         setSearchQuery('');
         setSearchResults([]);
-        // Depo stok bilgisini çek (internet varsa)
         if (result.stock_code && result.stock_code !== '---') {
           fetchDepoStok(result.stock_code);
         }
@@ -632,21 +635,18 @@ export default function App() {
       const upperText = text.toUpperCase();
       const words = normalizedQuery.split(' ').filter(w => w.length > 0);
 
-      // \u00c7oklu kelime aramas\u0131 (AND logic) veya stok kodu/barkod aramas\u0131
       if (words.length > 1) {
-        // \u00c7oklu kelime: t\u00fcm kelimeleri i\u00e7eren \u00fcr\u00fcnleri bul
         let sql = `
           SELECT p.*, COALESCE(
             (SELECT SUM(miktar) FROM depo_stoklar WHERE stock_code = p.stock_code), 0
           ) as toplam_stok
           FROM products p WHERE `;
         const conditions = words.map(() => 'p.name_normalized LIKE ?');
-        sql += conditions.join(' AND ') + ' LIMIT 20';
+        sql += conditions.join(' AND ') + ' LIMIT 25';
         const params = words.map(w => `%${w}%`);
         const results = await db.getAllAsync(sql, params);
         setSearchResults(results);
       } else {
-        // Tek kelime: ad, stok kodu veya barkod ile ara (case-insensitive)
         const sql = `
           SELECT p.*, COALESCE(
             (SELECT SUM(miktar) FROM depo_stoklar WHERE stock_code = p.stock_code), 0
@@ -655,7 +655,7 @@ export default function App() {
           WHERE p.name_normalized LIKE ? 
              OR UPPER(p.stock_code) LIKE ? 
              OR p.barcode LIKE ?
-          LIMIT 20`;
+          LIMIT 25`;
         const results = await db.getAllAsync(sql, [
           `%${normalizedQuery}%`,
           `%${upperText}%`,
@@ -669,12 +669,10 @@ export default function App() {
   const selectProduct = (item: any) => {
     setProduct(item);
     setShowResults(false);
-    // Arama sonuçları korunur (geri dönüldüğünde liste durması için)
     setScanned(true);
     setDepoStoklar([]);
     setShowDepoStok(false);
     Keyboard.dismiss();
-    // Depo stok bilgisini çek (internet varsa)
     if (item.stock_code && item.stock_code !== '---') {
       fetchDepoStok(item.stock_code);
     }
@@ -686,8 +684,7 @@ export default function App() {
 
     try {
       const cleanNote = (reportNote || 'Not yok').trim();
-
-      const message = `🚨 *EKSİK BARKOD BİLDİRİMİ!*\n\n🏷 *Barkod:* ${product.barcode}\n📝 *Not:* ${cleanNote}\n👤 *Bildiren:* ${userName || 'Bilinmiyor'}\n🕒 *Tarih:* ${new Date().toLocaleString('tr-TR')}\n📦 *Sürüm:* ${CURRENT_VERSION}`;
+      const message = `🚨 *EKSİK BARKOD BİLDİRİMİ!*\n\n🏷 *Barkod:* \`${product.barcode}\`\n📝 *Not:* ${cleanNote}\n👤 *Bildiren:* ${userName || 'Bilinmiyor'}\n🕒 *Tarih:* ${new Date().toLocaleString('tr-TR')}\n📦 *Sürüm:* ${CURRENT_VERSION}`;
 
       await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
         chat_id: TELEGRAM_CHAT_ID,
@@ -695,82 +692,91 @@ export default function App() {
         parse_mode: 'Markdown'
       });
 
-      Alert.alert(
-        'Başarılı',
-        'Bildirim iletildi.',
-        [
-          {
-            text: 'Tamam',
-            onPress: () => {
-              setReportModalVisible(false);
-              setReportNote('');
-              setProduct(null);
-              setScanned(false);
-              Keyboard.dismiss();
-            }
-          }
-        ]
-      );
+      setIsAlreadyReported(true);
+      setReportModalVisible(false);
+      setReportNote('');
+      showToast('Bildirim merkeze ve Telegram grubuna iletildi.');
     } catch (error: any) {
-      console.log('Telegram Send Error:', error.message);
       Alert.alert('Hata', 'Bildirim gönderilirken bir sorun oluştu.');
     } finally {
       setIsReporting(false);
     }
   };
 
-  if (!permission) return <View style={styles.centered}><ActivityIndicator color={isDark ? "#3B82F6" : "#1E40AF"} /></View>;
+  // Reset screen for next scan
+  const resetScan = () => {
+    setProduct(null);
+    setShowResults(true);
+    setScanned(false);
+    setDepoStoklar([]);
+    setShowDepoStok(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  if (!permission) return <View style={styles.centered}><ActivityIndicator color={colors.primary} size="large" /></View>;
   if (!permission.granted) {
     return (
       <View style={styles.centered}>
-        <TouchableOpacity style={styles.nextButton} onPress={requestPermission}><Text style={styles.buttonText}>Kameraya İzin Ver</Text></TouchableOpacity>
+        <Ionicons name="camera-outline" size={64} color={colors.primary} />
+        <Text style={[styles.userNameTitle, { fontSize: 22, marginTop: 16 }]}>Kamera İzni Gerekli</Text>
+        <Text style={[styles.userNameSubtitle, { textAlign: 'center', marginHorizontal: 30 }]}>
+          Barkod okutabilmek için uygulamanın kamerayı kullanmasına izin vermeniz gerekmektedir.
+        </Text>
+        <TouchableOpacity style={styles.industrialPrimaryBtn} onPress={requestPermission}>
+          <Text style={styles.industrialPrimaryBtnText}>KAMERAYA İZİN VER</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  // Kullanıcı adı modal'ı
+  // Kullanıcı adı Setup Modalı
   if (showUserNameModal) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <View style={styles.userNameContainer}>
-          <Ionicons name="person-circle-outline" size={80} color={isDark ? "#3B82F6" : "#1E40AF"} />
-          <Text style={styles.userNameTitle}>Hoş Geldiniz!</Text>
-          <Text style={styles.userNameSubtitle}>Lütfen adınızı girin</Text>
+          <View style={styles.operatorAvatarBox}>
+            <Ionicons name="person-outline" size={48} color={colors.primary} />
+          </View>
+          <Text style={styles.userNameTitle}>Operatör Girişi</Text>
+          <Text style={styles.userNameSubtitle}>Eksik ürün bildirimleri ve işlemler için adınızı belirleyin</Text>
           <TextInput
             style={styles.userNameInput}
-            placeholder="Adınız..."
-            placeholderTextColor="#8a9ab5"
+            placeholder="Adınız Soyadınız..."
+            placeholderTextColor={colors.textOutline}
             value={userNameInput}
             onChangeText={setUserNameInput}
             autoCapitalize="words"
             autoFocus
           />
-          <TouchableOpacity style={styles.userNameButton} onPress={saveUserName}>
-            <Text style={styles.userNameButtonText}>KAYDET VE DEVAM ET</Text>
+          <TouchableOpacity style={styles.industrialPrimaryBtn} onPress={saveUserName}>
+            <Text style={styles.industrialPrimaryBtnText}>KAYDET VE BAŞLA</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // İndirme modalı
+  // İndirme Ekranı (OTA Progress)
   if (isDownloading) {
     return (
       <View style={styles.centered}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <Ionicons name="cloud-download-outline" size={80} color={isDark ? "#3B82F6" : "#1E40AF"} />
-        <Text style={{ color: '#fff', marginTop: 20, fontSize: 18, fontWeight: 'bold' }}>
-          Güncelleme İndiriliyor...
+        <View style={styles.downloadIconRing}>
+          <Ionicons name="cloud-download-outline" size={60} color={colors.primary} />
+        </View>
+        <Text style={{ color: colors.text, marginTop: 24, fontSize: 20, fontWeight: '800', letterSpacing: -0.5 }}>
+          Yeni Sürüm İndiriliyor...
         </Text>
-        <Text style={{ color: '#ff6b00', marginTop: 10, fontSize: 24, fontWeight: 'bold' }}>
+        <Text style={{ color: colors.primary, marginTop: 8, fontSize: 32, fontWeight: '900' }}>
           %{(downloadProgress * 100).toFixed(0)}
         </Text>
-        <View style={{ width: '70%', height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, marginTop: 20, overflow: 'hidden' }}>
-          <View style={{ width: `${downloadProgress * 100}%`, height: '100%', backgroundColor: '#ff6b00' }} />
+        <View style={styles.progressBarTrack}>
+          <View style={[styles.progressBarFill, { width: `${downloadProgress * 100}%` }]} />
         </View>
-        <Text style={{ color: '#8a9ab5', marginTop: 15, fontSize: 12 }}>
-          Lütfen bekleyin, uygulama güncellemesi tamamlanıyor.
+        <Text style={{ color: colors.textMuted, marginTop: 18, fontSize: 13, textAlign: 'center', maxWidth: 280 }}>
+          İndirme tamamlandığında kurulum otomatik başlatılacaktır.
         </Text>
       </View>
     );
@@ -781,52 +787,64 @@ export default function App() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
 
-        {/* Header - Sol üstte sync veya geri, sağda barkod butonu */}
+        {/* 1. TOP INDUSTRIAL HEADER BAR (Stitch Header Specification) */}
         <View style={styles.headerBar}>
-          {/* Sol buton: \u00dcr\u00fcn varsa Geri, yoksa Sync */}
           {product && scanned ? (
-            <TouchableOpacity
-              style={styles.headerBtn}
-              onPress={() => {
-                setProduct(null);
-                setShowResults(true);
-                setScanned(false);
-                setDepoStoklar([]);
-                setShowDepoStok(false);
-              }}
-            >
-              <Ionicons name="arrow-back" size={24} color={isDark ? "#3B82F6" : "#1E40AF"} />
+            <TouchableOpacity style={styles.headerSquareBtn} onPress={resetScan} activeOpacity={0.7}>
+              <Ionicons name="chevron-back" size={22} color={colors.primary} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity
-              style={[styles.headerBtn, isSyncing && styles.headerBtnActive]}
-              onPress={() => handleSync(false)}
-              disabled={isSyncing}
-            >
-              <Animated.View style={isSyncing ? { transform: [{ rotate: spin }] } : undefined}>
-                <Ionicons name="sync" size={24} color={isSyncing ? "#fff" : (isDark ? "#3B82F6" : "#1E40AF")} />
-              </Animated.View>
-            </TouchableOpacity>
+            <View style={styles.terminalBadgeBox}>
+              <View style={styles.terminalIconWrap}>
+                <Ionicons name="qr-code-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={{ marginLeft: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={styles.livePulseDot} />
+                  <Text style={styles.terminalStatusText}>ÇEVRİMİÇİ</Text>
+                </View>
+                <Text style={styles.terminalNameText} numberOfLines={1}>
+                  {userName ? userName : 'Terminal #1'}
+                </Text>
+              </View>
+            </View>
           )}
 
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Fiyat & Stok Bilgisi</Text>
-            <TouchableOpacity onPress={() => checkForUpdates(false)} activeOpacity={0.7}>
-              <Text style={styles.headerSubtitle}>Powered by Hasan Kaynak | v{CURRENT_VERSION}</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Center Version & Title Pill */}
+          <TouchableOpacity 
+            style={styles.headerCenterPill} 
+            onPress={() => checkForUpdates(false)} 
+            activeOpacity={0.7}
+          >
+            <Text style={styles.headerTitleText}>Fiyat & Stok</Text>
+            <View style={styles.headerVersionPill}>
+              <Text style={styles.headerVersionText}>v{CURRENT_VERSION}</Text>
+            </View>
+          </TouchableOpacity>
 
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            {/* Tema Değiştirme Butonu */}
+          {/* Right Action Buttons */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <TouchableOpacity
-              style={styles.headerBtn}
+              style={styles.headerSquareBtn}
               onPress={() => setManualTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+              activeOpacity={0.7}
             >
-              <Ionicons name={isDark ? "moon" : "sunny"} size={22} color={isDark ? "#EAB308" : "#F59E0B"} />
+              <Ionicons name={isDark ? "moon" : "sunny"} size={19} color={isDark ? colors.warning : "#D97706"} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.headerBtn, cameraActive && styles.headerBtnActive]}
+              style={[styles.headerSquareBtn, isSyncing && styles.headerBtnActive]}
+              onPress={() => handleSync(false)}
+              disabled={isSyncing}
+              activeOpacity={0.7}
+            >
+              <Animated.View style={isSyncing ? { transform: [{ rotate: spin }] } : undefined}>
+                <Ionicons name="sync" size={19} color={isSyncing ? "#fff" : colors.primary} />
+              </Animated.View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.scannerToggleBtn, cameraActive && styles.scannerToggleBtnActive]}
               onPress={() => {
                 setCameraActive(!cameraActive);
                 if (!cameraActive) {
@@ -834,325 +852,592 @@ export default function App() {
                   setProduct(null);
                 }
               }}
+              activeOpacity={0.8}
             >
-              <Ionicons name={cameraActive ? "barcode" : "barcode-outline"} size={24} color={cameraActive ? "#fff" : (isDark ? "#3B82F6" : "#1E40AF")} />
+              <Ionicons name={cameraActive ? "barcode" : "barcode-outline"} size={20} color={cameraActive ? colors.primaryText : colors.primary} />
+              <Text style={[styles.scannerToggleBtnText, cameraActive && { color: colors.primaryText }]}>
+                {cameraActive ? 'KAPAT' : 'TARA'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Kamera Alan\u0131 - Sadece aktif oldu\u011funda */}
+        {/* 2. LIVE CAMERA HUD VIEWFINDER (Stitch Reticle & Laser Guides) */}
         {cameraActive && (
           <View style={styles.cameraBox}>
             <CameraView style={StyleSheet.absoluteFill} onBarcodeScanned={scanned ? undefined : handleBarCodeScanned} enableTorch={torch} />
-            <View style={styles.overlay}>
-              {!scanned && <View style={styles.targetFrame} />}
+            <View style={styles.viewfinderTintOverlay} pointerEvents="none" />
+            
+            {/* HUD Status Bar at Top of Viewfinder */}
+            <View style={styles.viewfinderTopHUD} pointerEvents="none">
+              <View style={styles.viewfinderBadge}>
+                <View style={styles.viewfinderPingDot} />
+                <Text style={styles.viewfinderBadgeText}>KAMERA AKTİF • OTO-ODAK</Text>
+              </View>
+              <View style={styles.viewfinderFormatTag}>
+                <Text style={styles.viewfinderFormatText}>EAN-13 / QR</Text>
+              </View>
             </View>
-            {/* Flash butonu kamera \u00fczerinde */}
-            <TouchableOpacity
-              style={[styles.flashBtn, torch && styles.flashBtnActive]}
-              onPress={() => setTorch(!torch)}
-            >
-              <Ionicons
-                name={torch ? "flashlight" : "flashlight-outline"}
-                size={20}
-                color={torch ? "#fff" : "#ff6b00"}
-              />
-            </TouchableOpacity>
+
+            {/* Target Reticle Box with Cyan Brackets */}
+            <View style={styles.reticleOverlay} pointerEvents="none">
+              <View style={styles.targetReticleFrame}>
+                {/* 4 Corner Brackets */}
+                <View style={[styles.cornerBracket, styles.bracketTL]} />
+                <View style={[styles.cornerBracket, styles.bracketTR]} />
+                <View style={[styles.cornerBracket, styles.bracketBL]} />
+                <View style={[styles.cornerBracket, styles.bracketBR]} />
+                
+                {/* Animated Laser Beam */}
+                <Animated.View 
+                  style={[
+                    styles.laserScanLine, 
+                    {
+                      transform: [{
+                        translateY: laserAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [10, 110]
+                        })
+                      }]
+                    }
+                  ]} 
+                />
+
+                {/* Center Crosshair */}
+                <View style={styles.centerCrosshair}>
+                  <Ionicons name="add" size={14} color={colors.primary} />
+                </View>
+              </View>
+              <View style={styles.viewfinderAlignPill}>
+                <Text style={styles.viewfinderAlignText}>BARKODU ÇERÇEVEYE HİZALAYIN</Text>
+              </View>
+            </View>
+
+            {/* Bottom Controls: Flash / Torch Button */}
+            <View style={styles.viewfinderBottomControls}>
+              <TouchableOpacity
+                style={[styles.hudTorchBtn, torch && styles.hudTorchBtnActive]}
+                onPress={() => setTorch(!torch)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={torch ? "flashlight" : "flashlight-outline"}
+                  size={18}
+                  color={torch ? "#fff" : colors.primary}
+                />
+                <Text style={[styles.hudTorchBtnText, torch && { color: '#fff' }]}>
+                  {torch ? 'Fener Açık' : 'Fener'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
-        {/* Senkronizasyon g\u00f6stergesi */}
+        {/* Sync Progress Banner */}
         {isSyncing && (
           <View style={styles.syncBanner}>
-            <ActivityIndicator size="small" color={isDark ? "#3B82F6" : "#1E40AF"} />
-            <Text style={styles.syncBannerText}>Veriler güncelleniyor...</Text>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.syncBannerText}>ERP Verileri Senkronize Ediliyor...</Text>
           </View>
         )}
 
-        <View style={styles.resultPanel}>
-          <View style={styles.searchContainer}>
-            <TextInput style={[styles.searchInput, { flex: 1, paddingRight: 40 }]} placeholder="Ad, stok kodu veya barkod ile ara..." placeholderTextColor="#8a9ab5" value={searchQuery} onChangeText={handleSearch} autoCapitalize="none" />
-
-            <TouchableOpacity onPress={handleSpeechStart} style={styles.micSearch}>
-              <Ionicons name={isListening ? "mic" : "mic-outline"} size={22} color={isListening ? "#EF4444" : (isDark ? "#3B82F6" : "#1E40AF")} />
-            </TouchableOpacity>
-
+        {/* 3. INDUSTRIAL SEARCH & RESULTS CONTAINER */}
+        <View style={styles.contentContainer}>
+          <View style={styles.searchBarWrapper}>
+            <View style={styles.searchIconBox}>
+              <Ionicons name="search" size={20} color={colors.textOutline} />
+            </View>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Ad, stok kodu veya barkod ile ara..."
+              placeholderTextColor={colors.textOutline}
+              value={searchQuery}
+              onChangeText={handleSearch}
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); setShowResults(true); }} style={styles.clearSearch}>
-                <Ionicons name="close-circle" size={22} color={isDark ? "#3B82F6" : "#1E40AF"} />
+              <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); setShowResults(true); }} style={styles.clearSearchBtn}>
+                <Ionicons name="close" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             )}
+            <TouchableOpacity onPress={handleSpeechStart} style={[styles.voiceMicBtn, isListening && styles.voiceMicBtnActive]}>
+              <Ionicons name={isListening ? "mic" : "mic-outline"} size={18} color={isListening ? "#fff" : colors.primary} />
+            </TouchableOpacity>
           </View>
 
+          {/* Quick Context Filter Chips (Stitch Specification) */}
+          {!product && searchResults.length === 0 && (
+            <View style={styles.quickChipsScroll}>
+              <TouchableOpacity style={styles.quickChip} onPress={() => handleSearch('DURU')} activeOpacity={0.7}>
+                <Ionicons name="time-outline" size={14} color={colors.primary} />
+                <Text style={styles.quickChipText}>HIZLI ARAMA</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickChip} onPress={() => handleSync(false)} activeOpacity={0.7}>
+                <Ionicons name="cloud-done-outline" size={14} color={colors.tertiary} />
+                <Text style={[styles.quickChipText, { color: colors.tertiary }]}>ERP AKTİF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickChip} onPress={() => checkForUpdates(false)} activeOpacity={0.7}>
+                <Ionicons name="shield-checkmark-outline" size={14} color={colors.textOutline} />
+                <Text style={styles.quickChipText}>GÜNCELLEME</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Search Autocomplete List */}
           {searchResults.length > 0 && showResults ? (
             <FlatList
               data={searchResults}
               keyExtractor={(item) => item.barcode}
               style={styles.searchResultsList}
+              contentContainerStyle={{ paddingBottom: 20 }}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.searchResultItem} onPress={() => selectProduct(item)}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.searchResultName} numberOfLines={1}>{item.name}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                      <Text style={styles.searchResultDetail}>{item.stock_code} - {formatPrice(item.price)} {item.currency}</Text>
+                <TouchableOpacity style={styles.searchResultCard} onPress={() => selectProduct(item)} activeOpacity={0.7}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <Text style={styles.searchItemCode}>{item.stock_code}</Text>
                       {!!item.iskonto_orani && (
-                        <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, borderWidth: 0.5, borderColor: '#EF4444' }}>
-                          <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: 'bold' }}>İSK: {item.iskonto_orani.replace(/^%/, '')}</Text>
+                        <View style={styles.discountBadgeSmall}>
+                          <Text style={styles.discountBadgeSmallText}>İSK: {item.iskonto_orani.replace(/^%/, '')}%</Text>
                         </View>
                       )}
                     </View>
-                  </View>
-                  <View style={styles.stokBadge}>
-                    <Text style={[
-                      styles.stokBadgeText,
-                      (item.toplam_stok || 0) <= 0 && styles.stokBadgeTextZero
-                    ]}>
-                      {formatPrice(item.toplam_stok || 0)}
+                    <Text style={styles.searchResultName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.searchResultPrice}>
+                      {formatPrice(item.price)} <Text style={{ fontSize: 13, color: colors.primary }}>{item.currency}</Text>
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={20} color={isDark ? "#3B82F6" : "#1E40AF"} />
+                  <View style={[styles.stokBadge, (item.toplam_stok || 0) <= 0 && styles.stokBadgeZero]}>
+                    <Text style={[styles.stokBadgeText, (item.toplam_stok || 0) <= 0 && styles.stokBadgeTextZero]}>
+                      {formatPrice(item.toplam_stok || 0)}
+                    </Text>
+                    <Text style={styles.stokBadgeUnit}>{item.unit || 'Adet'}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textOutline} />
                 </TouchableOpacity>
               )}
               keyboardShouldPersistTaps="handled"
             />
           ) : (
-            <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 110 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              
+              {/* 4. PRODUCT DETAIL VIEW (Stitch Screen 1fe78bd95d1f4d2cb066d97d48bbf35d) */}
               {product ? (
-                <View style={styles.infoContainer}>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceText}>{formatPrice(product.price)}</Text>
-                    <Text style={styles.currencyText}> {product.currency}</Text>
-                    {!!product.iskonto_orani && (
-                      <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#EF4444', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginLeft: 12, alignSelf: 'center' }}>
-                        <Text style={{ color: '#EF4444', fontWeight: '900', fontSize: 16 }}>
-                          İSK: {product.iskonto_orani.replace(/^%/, '')}
+                <View style={styles.detailContainer}>
+                  
+                  {/* Context Bar */}
+                  <View style={styles.detailContextBar}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="barcode-outline" size={16} color={colors.primary} />
+                      <Text style={styles.detailContextText}>MİKRO ERP STOK KARTI</Text>
+                    </View>
+                    <View style={styles.detailOnlinePill}>
+                      <View style={styles.livePulseDot} />
+                      <Text style={styles.detailOnlinePillText}>SENKRONİZE</Text>
+                    </View>
+                  </View>
+
+                  {/* Hero Net Price Card */}
+                  <View style={styles.heroPriceCard}>
+                    <View style={styles.heroPriceTopRow}>
+                      <Text style={styles.heroPriceLabel}>NET SATIŞ FİYATI</Text>
+                      {!!product.iskonto_orani && (
+                        <View style={styles.heroDiscountBadge}>
+                          <Ionicons name="trending-down" size={14} color="#fff" style={{ marginRight: 3 }} />
+                          <Text style={styles.heroDiscountBadgeText}>İSK: {product.iskonto_orani.replace(/^%/, '')}%</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.heroPriceLockup}>
+                      <Text style={styles.heroPriceNumber}>{formatPrice(product.price)}</Text>
+                      <Text style={styles.heroPriceCurrency}>{product.currency || 'TL'}</Text>
+                    </View>
+
+                    {!!product.lastup_date && (
+                      <View style={styles.heroPriceDatePill}>
+                        <Text style={styles.heroPriceDateText}>
+                          Son Fiyat Değişikliği: <Text style={{ color: colors.text, fontWeight: '700' }}>{product.lastup_date}</Text> (KDV Dahil)
                         </Text>
                       </View>
                     )}
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: 10, marginBottom: 25 }}>
-                    <Text style={[styles.nameText, { marginBottom: 0, flex: 1 }]}>{product.name}</Text>
+
+                  {/* Product Title Card */}
+                  <View style={styles.productTitleCard}>
+                    <View style={{ flex: 1, marginRight: 10 }}>
+                      <Text style={styles.productCategoryLabel}>TANIMLI ÜRÜN ADI</Text>
+                      <Text style={styles.productNameText}>{product.name}</Text>
+                    </View>
                     {product.stock_code && product.stock_code !== '---' && (
-                      <TouchableOpacity
-                        onPress={openEditNameModal}
-                        style={{
-                          padding: 8,
-                          marginLeft: 8,
-                          backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(30, 64, 175, 0.08)',
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(30, 64, 175, 0.2)',
-                          alignSelf: 'center'
-                        }}
-                      >
-                        <Ionicons name="pencil" size={18} color={isDark ? "#3B82F6" : "#1E40AF"} />
+                      <TouchableOpacity style={styles.titleEditBtn} onPress={openEditNameModal} activeOpacity={0.7}>
+                        <Ionicons name="pencil" size={18} color={colors.primary} />
                       </TouchableOpacity>
                     )}
                   </View>
 
-                  <View style={styles.codesRow}>
-                    <View style={styles.codeItem}>
-                      <Text style={styles.codeLabel}>BARKOD</Text>
-                      <Text style={styles.codeValue}>{product.barcode}</Text>
-                    </View>
-                    <View style={styles.codeItem}>
-                      <Text style={styles.codeLabel}>STOK KODU</Text>
-                      <Text style={styles.codeValue}>{product.stock_code}</Text>
-                    </View>
-                    <View style={styles.codeItem}>
-                      <Text style={styles.codeLabel}>BİRİM</Text>
-                      <Text style={styles.codeValue}>{product.unit || 'Adet'}</Text>
-                    </View>
-                    {!!product.iskonto_orani && (
-                      <View style={styles.codeItem}>
-                        <Text style={[styles.codeLabel, { color: '#EF4444' }]}>İSKONTO</Text>
-                        <Text style={[styles.codeValue, { color: '#EF4444', fontWeight: '900' }]}>{product.iskonto_orani}</Text>
+                  {/* 4-Column Spec Grid */}
+                  <View style={styles.specGridRow}>
+                    <TouchableOpacity 
+                      style={styles.specGridCell} 
+                      onPress={() => showToast(`Barkod: ${product.barcode}`)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.specGridCellHeader}>
+                        <Text style={styles.specCellLabel}>BARKOD</Text>
+                        <Ionicons name="copy-outline" size={13} color={colors.primary} />
                       </View>
-                    )}
-                  </View>
+                      <Text style={styles.specCellValue} numberOfLines={1}>{product.barcode}</Text>
+                    </TouchableOpacity>
 
-                  {!!product.lastup_date && (
-                    <View style={{ marginBottom: 20, alignItems: 'center', backgroundColor: isDark ? '#1E293B' : '#F1F5F9', padding: 8, borderRadius: 12, borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' }}>
-                      <Text style={{ color: '#8a9ab5', fontSize: 11, fontWeight: 'bold' }}>SON FİYAT DEĞİŞİKLİĞİ</Text>
-                      <Text style={{ color: isDark ? '#10B981' : '#059669', fontSize: 13, fontWeight: 'bold', marginTop: 2 }}>
-                        {product.lastup_date}
+                    <View style={styles.specGridCell}>
+                      <Text style={styles.specCellLabel}>STOK KODU</Text>
+                      <Text style={[styles.specCellValue, { color: colors.primary }]} numberOfLines={1}>{product.stock_code}</Text>
+                    </View>
+
+                    <View style={styles.specGridCell}>
+                      <Text style={styles.specCellLabel}>BİRİM</Text>
+                      <Text style={styles.specCellValue}>{product.unit || 'Adet'}</Text>
+                    </View>
+
+                    <View style={styles.specGridCell}>
+                      <Text style={styles.specCellLabel}>İSKONTO</Text>
+                      <Text style={[styles.specCellValue, { color: colors.danger, fontWeight: '800' }]}>
+                        {product.iskonto_orani || '%0'}
                       </Text>
                     </View>
-                  )}
+                  </View>
 
-                  {/* DEPO BAZLI STOK BİLGİSİ */}
+                  {/* Warehouse Inventory Container (DEPO STOKLARI) */}
                   {showDepoStok && product.name !== 'Ürün Bulunamadı' && (
-                    <View style={styles.depoStokContainer}>
-                      <View style={styles.depoStokHeader}>
-                        <Ionicons name="cube-outline" size={18} color="#00c853" />
-                        <Text style={styles.depoStokTitle}>DEPO STOKLARI</Text>
-                        {isLoadingDepoStok && <ActivityIndicator size="small" color="#00c853" style={{ marginLeft: 8 }} />}
+                    <View style={styles.warehouseCard}>
+                      <View style={styles.warehouseHeader}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="cube-outline" size={18} color={colors.tertiary} />
+                          <Text style={styles.warehouseTitle}>DEPO STOKLARI</Text>
+                        </View>
+                        <View style={styles.warehouseHeaderTag}>
+                          <Text style={styles.warehouseHeaderTagText}>AKTİF ENVANTER</Text>
+                        </View>
                       </View>
 
+                      {isLoadingDepoStok && (
+                        <View style={{ paddingVertical: 18, alignItems: 'center' }}>
+                          <ActivityIndicator size="small" color={colors.tertiary} />
+                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 6 }}>Depo bakiyeleri sorgulanıyor...</Text>
+                        </View>
+                      )}
+
                       {!isLoadingDepoStok && depoStoklar.length === 0 && (
-                        <View style={styles.depoStokEmpty}>
-                          <Ionicons name="information-circle-outline" size={20} color="#8a9ab5" />
-                          <Text style={styles.depoStokEmptyText}>Bu üründe stok bulunmuyor</Text>
+                        <View style={styles.warehouseEmptyBox}>
+                          <Ionicons name="information-circle-outline" size={20} color={colors.textMuted} />
+                          <Text style={styles.warehouseEmptyText}>Bu üründe herhangi bir depoda stok bulunmuyor.</Text>
                         </View>
                       )}
 
                       {depoStoklar.map((depo: any, index: number) => (
-                        <View key={`depo-${index}`} style={styles.depoStokItem}>
-                          <View style={styles.depoStokLeft}>
-                            <Text style={styles.depoStokNo}>{depo.DepoNo}</Text>
-                            <Text style={styles.depoStokAdi} numberOfLines={1}>{depo.DepoAdi || 'Depo'}</Text>
+                        <View key={`depo-${index}`} style={styles.warehouseRow}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                            <View style={[styles.warehouseStatusDot, (depo.Miktar || 0) <= 0 && { backgroundColor: colors.danger }]} />
+                            <View style={{ marginLeft: 8, flex: 1 }}>
+                              <Text style={styles.warehouseName} numberOfLines={1}>{depo.DepoAdi || `Depo ${depo.DepoNo}`}</Text>
+                              <Text style={styles.warehouseCode}>Depo No: {depo.DepoNo}</Text>
+                            </View>
                           </View>
-                          <View style={styles.depoStokRight}>
-                            <Text style={[
-                              styles.depoStokMiktar,
-                              depo.Miktar < 0 && styles.depoStokMiktarNegatif
-                            ]}>
-                              {formatPrice(depo.Miktar)}
+                          <View style={styles.warehouseAmountBadge}>
+                            <Text style={[styles.warehouseAmountText, (depo.Miktar || 0) < 0 && { color: colors.danger }]}>
+                              {formatPrice(depo.Miktar || 0)}
                             </Text>
-                            <Text style={styles.depoStokBirim}>{product.unit || 'Adet'}</Text>
+                            <Text style={styles.warehouseUnitText}>{product.unit || 'Adet'}</Text>
                           </View>
                         </View>
                       ))}
 
                       {depoStoklar.length > 0 && (
-                        <View style={styles.depoStokToplam}>
-                          <Text style={styles.depoStokToplamLabel}>TOPLAM</Text>
-                          <Text style={styles.depoStokToplamValue}>
-                            {formatPrice(depoStoklar.reduce((sum: number, d: any) => sum + (d.Miktar || 0), 0))} {product.unit || 'Adet'}
-                          </Text>
+                        <View style={styles.warehouseTotalRow}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="layers-outline" size={18} color={colors.tertiary} />
+                            <Text style={styles.warehouseTotalLabel}>TOPLAM STOK</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                            <Text style={styles.warehouseTotalValue}>
+                              {formatPrice(depoStoklar.reduce((sum: number, d: any) => sum + (d.Miktar || 0), 0))}
+                            </Text>
+                            <Text style={styles.warehouseTotalUnit}>{product.unit || 'Adet'}</Text>
+                          </View>
                         </View>
                       )}
                     </View>
                   )}
 
-                  {/* İnternet bağlantısı yoksa uyarı */}
                   {!isConnected && product.name !== 'Ürün Bulunamadı' && (
-                    <TouchableOpacity
-                      style={styles.noInternetWarning}
-                      onPress={() => fetchDepoStok(product.stock_code)}
-                    >
-                      <Ionicons name="cloud-offline-outline" size={18} color="#ffc107" />
-                      <Text style={styles.noInternetText}>Depo stok için internete bağlanın</Text>
+                    <TouchableOpacity style={styles.offlineWarningPill} onPress={() => fetchDepoStok(product.stock_code)}>
+                      <Ionicons name="cloud-offline-outline" size={16} color={colors.warning} />
+                      <Text style={styles.offlineWarningText}>Çevrimdışı mod: Canlı depo stokları için internete bağlanın.</Text>
                     </TouchableOpacity>
                   )}
-
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity style={styles.nextButtonSmall} onPress={() => { setScanned(false); setProduct(null); setSearchQuery(''); setDepoStoklar([]); setShowDepoStok(false); }}>
-                      <Text style={styles.buttonText}>YENİ OKUTMA</Text>
-                    </TouchableOpacity>
-
-                    {product.stock_code && product.stock_code !== '---' && (
-                      <TouchableOpacity
-                        style={[styles.nextButtonSmall, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(5, 150, 105, 0.1)', borderColor: isDark ? '#10B981' : '#059669' }]}
-                        onPress={openEditNameModal}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                          <Ionicons name="pencil-outline" size={16} color={isDark ? '#10B981' : '#059669'} style={{ marginRight: 6 }} />
-                          <Text style={[styles.buttonText, { color: isDark ? '#10B981' : '#059669' }]}>İSMİ DÜZENLE</Text>
-                        </View>
-                      </TouchableOpacity>
-                    )}
-
-                    {product.name === 'Ürün Bulunamadı' && (
-                      <TouchableOpacity
-                        style={[styles.reportButton, isAlreadyReported && styles.reportedButton]}
-                        onPress={() => !isAlreadyReported && setReportModalVisible(true)}
-                        disabled={isAlreadyReported}
-                      >
-                        <Text style={styles.buttonText}>{isAlreadyReported ? 'ZATEN BİLDİRİLDİ' : 'EKSİK BARKOD BİLDİR'}</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
                 </View>
               ) : (
-                <View style={styles.idleState}>
-                  <Ionicons name="barcode-outline" size={60} color="rgba(255, 107, 0, 0.3)" />
-                  <Text style={styles.idleText}>Barkod taramak için sağ üstteki</Text>
-                  <Text style={styles.idleText}>barkod butonuna basınız.</Text>
+                /* 5. IDLE STATE & RETICLE HUD (Stitch Screen c117cd3c34f946b58e6b0cdc10e4e912) */
+                <View style={styles.idleStateContainer}>
+                  {/* Holographic Reticle Box */}
+                  <View style={styles.idleReticleBox}>
+                    <View style={[styles.cornerBracket, styles.bracketTL]} />
+                    <View style={[styles.cornerBracket, styles.bracketTR]} />
+                    <View style={[styles.cornerBracket, styles.bracketBL]} />
+                    <View style={[styles.cornerBracket, styles.bracketBR]} />
+
+                    <Animated.View 
+                      style={[
+                        styles.laserScanLine, 
+                        {
+                          transform: [{
+                            translateY: laserAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [15, 130]
+                            })
+                          }]
+                        }
+                      ]} 
+                    />
+
+                    <Ionicons name="barcode-outline" size={72} color={colors.primary} style={{ opacity: 0.85 }} />
+                    <Text style={styles.idleBarcodeText}>8690123456789</Text>
+                  </View>
+
+                  <Text style={styles.idleInstructionTitle}>Ürün veya Raf Barkodu Okutun</Text>
+                  <Text style={styles.idleInstructionDesc}>
+                    Fiyat ve depo stok dökümünü anında görmek için kamerayı açın veya arama kutusuna barkod numarasını yazın.
+                  </Text>
+
+                  {/* Primary Camera Action Button */}
+                  <TouchableOpacity 
+                    style={styles.idleTriggerCameraBtn} 
+                    onPress={() => {
+                      setCameraActive(true);
+                      setScanned(false);
+                      setProduct(null);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <View style={styles.idleCameraIconSquare}>
+                        <Ionicons name="camera" size={20} color="#fff" />
+                      </View>
+                      <View>
+                        <Text style={styles.idleCameraBtnTitle}>KAMERA İLE TARA</Text>
+                        <Text style={styles.idleCameraBtnSubtitle}>Otomatik Lazer Odaklama</Text>
+                      </View>
+                    </View>
+                    <Ionicons name="arrow-forward" size={20} color="#fff" />
+                  </TouchableOpacity>
+
+                  <View style={styles.idleDatabaseBadge}>
+                    <Ionicons name="checkmark-circle" size={15} color={colors.tertiary} />
+                    <Text style={styles.idleDatabaseBadgeText}>
+                      Çevrimdışı Veritabanı Güncel <Text style={{ color: colors.text, fontWeight: '700' }}>({totalProducts.toLocaleString('tr-TR')} Kayıt)</Text>
+                    </Text>
+                  </View>
                 </View>
               )}
             </ScrollView>
           )}
+
+          {/* 6. STICKY BOTTOM INDUSTRIAL COMMAND DECK (Product Detail / Scan Next) */}
+          {product && (
+            <View style={styles.bottomCommandDeck}>
+              <TouchableOpacity style={styles.bottomSecondaryBtn} onPress={resetScan} activeOpacity={0.7}>
+                <Ionicons name="barcode-outline" size={18} color={colors.primary} />
+                <Text style={styles.bottomSecondaryBtnText}>YENİ OKUTMA</Text>
+              </TouchableOpacity>
+
+              {product.stock_code && product.stock_code !== '---' ? (
+                <TouchableOpacity style={styles.bottomPrimaryBtn} onPress={openEditNameModal} activeOpacity={0.8}>
+                  <Ionicons name="pencil-outline" size={18} color="#fff" />
+                  <Text style={styles.bottomPrimaryBtnText}>İSMİ DÜZENLE</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity 
+                  style={[styles.bottomReportBtn, isAlreadyReported && styles.bottomReportBtnReported]} 
+                  onPress={() => !isAlreadyReported && setReportModalVisible(true)}
+                  disabled={isAlreadyReported}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="paper-plane-outline" size={18} color="#fff" />
+                  <Text style={styles.bottomReportBtnText}>
+                    {isAlreadyReported ? 'BİLDİRİLDİ' : 'EKSİK BARKOD BİLDİR'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
 
-        {!searchQuery && !reportModalVisible && (
-          <View style={styles.footer}>
-            <View style={styles.statsContainer}>
-              <Text style={styles.statsText}>Toplam Barkod: {totalProducts.toLocaleString('tr-TR')} adet</Text>
-            </View>
+        {/* Footer Brand Info */}
+        {!searchQuery && !product && !reportModalVisible && (
+          <View style={styles.footerContainer}>
             <TouchableOpacity onPress={() => checkForUpdates(false)} activeOpacity={0.7}>
-              <Text style={styles.footerBrand}>Powered by Hasan Kaynak | v{CURRENT_VERSION}</Text>
+              <Text style={styles.footerBrandText}>
+                Fiyat Gör Enterprise • Powered by Hasan Kaynak • v{CURRENT_VERSION}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
+
       </KeyboardAvoidingView>
 
+      {/* Floating Action Toast */}
+      {toastMessage && (
+        <Animated.View style={[styles.floatingToast, { opacity: toastFadeAnim }]}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.tertiary} />
+          <Text style={styles.floatingToastText}>{toastMessage}</Text>
+        </Animated.View>
+      )}
+
+      {/* 7. EKSİK ÜRÜN BİLDİR MODALI (Stitch Screen a0167000d8bd49509a63c586ac7b1d4a) */}
       <Modal
         isVisible={reportModalVisible}
         onBackdropPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
         onBackButtonPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
-        backdropOpacity={0.7}
-        avoidKeyboard={false}
-        style={styles.modal}
+        backdropOpacity={0.75}
+        avoidKeyboard={true}
+        style={styles.modalCentered}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Eksik Ürün Bildir</Text>
+          <View style={styles.modalCardContainer}>
+            {/* Ambient Top Glow Strip */}
+            <View style={styles.modalTopAmberStrip} />
+
+            <View style={styles.modalCardHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={styles.modalWarningIconBox}>
+                  <Ionicons name="warning" size={24} color={colors.warning} />
+                </View>
+                <View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.modalMainTitle}>Eksik Ürün Bildir</Text>
+                    <View style={styles.modalTagErpYok}>
+                      <Text style={styles.modalTagErpYokText}>ERP'de Yok</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.modalSubtitle}>Sistemde eşleşmeyen barkod kaydı bildirimi</Text>
+                </View>
+              </View>
               <TouchableOpacity onPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}>
-                <Ionicons name="close" size={28} color="#8a9ab5" />
+                <Ionicons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalLabel}>Barkod: {product?.barcode}</Text>
+            {/* Scanned Barcode Subheader Pill */}
+            <View style={styles.modalBarcodeStrip}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="barcode-outline" size={18} color={colors.primary} />
+                <Text style={styles.modalBarcodeStripLabel}>Taranan Barkod:</Text>
+              </View>
+              <View style={styles.modalBarcodeValuePill}>
+                <Text style={styles.modalBarcodeValueText}>{product?.barcode}</Text>
+              </View>
+            </View>
+
+            {/* Quick Tag Chips */}
+            <View style={styles.modalQuickTagsRow}>
+              {['Fiyat Etiketi Yok', 'Yeni Gelen Ürün', 'Hatalı Barkod'].map((tag, idx) => (
+                <TouchableOpacity 
+                  key={`tag-${idx}`} 
+                  style={styles.modalQuickTagBtn}
+                  onPress={() => setReportNote(prev => prev ? `${prev} - ${tag}` : tag)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalQuickTagText}>{tag}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
             <TextInput
-              style={styles.modalInput}
-              placeholder="Ürün adı veya detay yazın..."
-              placeholderTextColor="#8a9ab5"
+              style={styles.modalTextInput}
+              placeholder="Reyon, ürün adı veya eksiklik detayını yazın..."
+              placeholderTextColor={colors.textOutline}
               multiline
               value={reportNote}
               onChangeText={setReportNote}
               autoFocus={true}
             />
 
-            <TouchableOpacity style={styles.modalSubmit} onPress={sendReport} disabled={isReporting}>
-              {isReporting ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>KAYDET VE GÖNDER</Text>}
+            {/* Telegram Target Notification Banner */}
+            <View style={styles.modalTelegramBanner}>
+              <Ionicons name="paper-plane" size={16} color="#229ED9" />
+              <Text style={styles.modalTelegramBannerText}>
+                Bildirim anında <Text style={{ color: '#fff', fontWeight: '700' }}>Merkez ERP Masası</Text> ve Telegram grubuna iletilecektir.
+              </Text>
+            </View>
+
+            {/* Actions */}
+            <TouchableOpacity 
+              style={styles.modalSendActionBtn} 
+              onPress={sendReport} 
+              disabled={isReporting}
+              activeOpacity={0.85}
+            >
+              {isReporting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="send" size={16} color="#fff" />
+                  <Text style={styles.modalSendActionBtnText}>MERKEZE VE TELEGRAM'A BİLDİR</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.modalDismissBtn} 
+              onPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalDismissBtnText}>Vazgeç</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Ürün İsmi Düzenleme Modal */}
+      {/* 8. ÜRÜN İSMİ DÜZENLEME MODALI */}
       <Modal
         isVisible={editNameModalVisible}
         onBackdropPress={() => { if (!isUpdatingName) { Keyboard.dismiss(); setEditNameModalVisible(false); } }}
         onBackButtonPress={() => { if (!isUpdatingName) { Keyboard.dismiss(); setEditNameModalVisible(false); } }}
-        backdropOpacity={0.7}
+        backdropOpacity={0.75}
         avoidKeyboard={true}
-        style={styles.modal}
+        style={styles.modalCentered}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="pencil" size={22} color={isDark ? "#3B82F6" : "#1E40AF"} />
-                <Text style={styles.modalTitle}>İsmi Düzenle</Text>
+          <View style={styles.modalCardContainer}>
+            <View style={[styles.modalTopAmberStrip, { backgroundColor: colors.tertiary }]} />
+
+            <View style={styles.modalCardHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={[styles.modalWarningIconBox, { backgroundColor: colors.tertiaryContainer, borderColor: colors.tertiary }]}>
+                  <Ionicons name="pencil" size={20} color={colors.tertiary} />
+                </View>
+                <View>
+                  <Text style={styles.modalMainTitle}>Ürün İsmini Düzenle</Text>
+                  <Text style={styles.modalSubtitle}>Mikro ERP ve el terminalinde anlık güncellenir</Text>
+                </View>
               </View>
               <TouchableOpacity onPress={() => { if (!isUpdatingName) { Keyboard.dismiss(); setEditNameModalVisible(false); } }}>
-                <Ionicons name="close" size={28} color="#8a9ab5" />
+                <Ionicons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
-            <View style={{ marginBottom: 15, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 14 }}>
-              <Text style={{ color: '#8a9ab5', fontSize: 12, fontWeight: '700' }}>STOK KODU: <Text style={{ color: isDark ? '#fff' : '#000' }}>{product?.stock_code}</Text></Text>
-              {!!product?.barcode && <Text style={{ color: '#8a9ab5', fontSize: 12, fontWeight: '700', marginTop: 4 }}>BARKOD: <Text style={{ color: isDark ? '#fff' : '#000' }}>{product?.barcode}</Text></Text>}
+            <View style={styles.modalBarcodeStrip}>
+              <Text style={styles.modalBarcodeStripLabel}>STOK KODU: <Text style={{ color: colors.text, fontWeight: '700' }}>{product?.stock_code}</Text></Text>
+              {!!product?.barcode && (
+                <Text style={styles.modalBarcodeStripLabel}>BARKOD: <Text style={{ color: colors.text, fontWeight: '700' }}>{product?.barcode}</Text></Text>
+              )}
             </View>
 
             <TextInput
-              style={[styles.modalInput, { height: 95, marginBottom: 6, fontSize: 15 }]}
+              style={[styles.modalTextInput, { height: 95 }]}
               placeholder="Yeni ürün adını girin..."
-              placeholderTextColor="#8a9ab5"
+              placeholderTextColor={colors.textOutline}
               multiline
               maxLength={127}
               value={editNameInput}
@@ -1160,421 +1445,1322 @@ export default function App() {
               autoFocus={true}
               editable={!isUpdatingName}
             />
-            <Text style={{ alignSelf: 'flex-end', color: '#8a9ab5', fontSize: 11, marginBottom: 18, fontWeight: '600' }}>
+
+            <Text style={{ alignSelf: 'flex-end', color: colors.textOutline, fontSize: 11, marginBottom: 16, fontWeight: '600' }}>
               {editNameInput.length} / 127
             </Text>
 
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity
-                style={[styles.nextButtonSmall, { padding: 16 }]}
-                onPress={() => { Keyboard.dismiss(); setEditNameModalVisible(false); }}
-                disabled={isUpdatingName}
-              >
-                <Text style={styles.buttonText}>VAZGEÇ</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSubmit, { flex: 1.6, padding: 16, backgroundColor: '#10B981', shadowColor: '#10B981' }]}
-                onPress={handleUpdateProductName}
-                disabled={isUpdatingName}
-              >
-                {isUpdatingName ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={[styles.modalSubmitText, { color: '#fff' }]}>MİKRO'YA KAYDET</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity 
+              style={[styles.modalSendActionBtn, { backgroundColor: colors.tertiary }]} 
+              onPress={handleUpdateProductName} 
+              disabled={isUpdatingName}
+              activeOpacity={0.85}
+            >
+              {isUpdatingName ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.modalSendActionBtnText}>MİKRO ERP'YE KAYDET</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.modalDismissBtn} 
+              onPress={() => { Keyboard.dismiss(); setEditNameModalVisible(false); }}
+              disabled={isUpdatingName}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalDismissBtnText}>Vazgeç</Text>
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
     </SafeAreaView>
   );
 }
 
-
-const getStyles = (isDark: boolean) => {
-  const colors = isDark ? {
-    bg: '#0F172A',
-    card: '#1E293B',
-    text: '#F8FAFC',
-    textMuted: '#94A3B8',
-    border: 'rgba(255,255,255,0.1)',
-    primary: '#3B82F6',
-    primarySoft: 'rgba(59, 130, 246, 0.1)',
+// -------------------------------------------------------------
+// STITCH DESIGN TOKENS & SYSTEM COLORS
+// -------------------------------------------------------------
+const getThemeColors = (isDark: boolean) => {
+  if (isDark) {
+    return {
+      bg: '#0B1326',
+      surface: '#131B2E',
+      surfaceHigh: '#1E293B',
+      surfaceHighest: '#222A3D',
+      surfaceLowest: '#060E20',
+      border: '#222F49',
+      borderSubtle: '#2A3852',
+      primary: '#38BDF8',
+      primaryGlow: 'rgba(56, 189, 248, 0.25)',
+      primaryText: '#00354A',
+      primaryContainer: '#0284C7',
+      secondary: '#2563EB',
+      secondaryContainer: 'rgba(37, 99, 235, 0.2)',
+      text: '#DAE2FD',
+      textMuted: '#94A3B8',
+      textOutline: '#87929A',
+      tertiary: '#10B981',
+      tertiaryContainer: 'rgba(16, 185, 129, 0.15)',
+      warning: '#F59E0B',
+      warningContainer: 'rgba(245, 158, 11, 0.15)',
+      danger: '#EF4444',
+      dangerContainer: 'rgba(239, 68, 68, 0.18)',
+    };
+  }
+  return {
+    bg: '#F1F5F9',
+    surface: '#FFFFFF',
+    surfaceHigh: '#F8FAFC',
+    surfaceHighest: '#E2E8F0',
+    surfaceLowest: '#FFFFFF',
+    border: '#CBD5E1',
+    borderSubtle: '#E2E8F0',
+    primary: '#0284C7',
+    primaryGlow: 'rgba(2, 132, 199, 0.15)',
     primaryText: '#FFFFFF',
-    success: '#10B981',
-    successSoft: 'rgba(16, 185, 129, 0.15)',
-    danger: '#EF4444',
-    dangerSoft: 'rgba(239, 68, 68, 0.15)',
-    warning: '#F59E0B',
-    warningSoft: 'rgba(245, 158, 11, 0.1)'
-  } : {
-    bg: '#F8FAFC',
-    card: '#FFFFFF',
+    primaryContainer: '#0284C7',
+    secondary: '#2563EB',
+    secondaryContainer: 'rgba(37, 99, 235, 0.1)',
     text: '#0F172A',
     textMuted: '#64748B',
-    border: 'rgba(0,0,0,0.08)',
-    primary: '#1E40AF',
-    primarySoft: 'rgba(30, 64, 175, 0.08)',
-    primaryText: '#FFFFFF',
-    success: '#059669',
-    successSoft: 'rgba(5, 150, 105, 0.1)',
-    danger: '#DC2626',
-    dangerSoft: 'rgba(220, 38, 38, 0.1)',
+    textOutline: '#94A3B8',
+    tertiary: '#059669',
+    tertiaryContainer: 'rgba(5, 150, 105, 0.12)',
     warning: '#D97706',
-    warningSoft: 'rgba(217, 119, 6, 0.1)'
+    warningContainer: 'rgba(217, 119, 6, 0.12)',
+    danger: '#DC2626',
+    dangerContainer: 'rgba(220, 38, 38, 0.12)',
   };
+};
+
+// -------------------------------------------------------------
+// STITCH INDUSTRIAL STYLESHEET
+// -------------------------------------------------------------
+const getStyles = (isDark: boolean) => {
+  const colors = getThemeColors(isDark);
 
   return StyleSheet.create({
-
-    container: { flex: 1, backgroundColor: colors.bg },
-    centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
-
-    // Kullanıcı Adı Ekranı Stilleri
-    userNameContainer: {
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    centered: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 30,
-      backgroundColor: colors.bg
-    },
-    userNameTitle: {
-      color: colors.text,
-      fontSize: 32,
-      fontWeight: '900',
-      marginTop: 24,
-      marginBottom: 8,
-      letterSpacing: -1
-    },
-    userNameSubtitle: {
-      color: colors.textMuted,
-      fontSize: 16,
-      marginBottom: 40,
-      fontWeight: '500'
-    },
-    userNameInput: {
-      width: '100%',
-      backgroundColor: colors.border,
-      borderRadius: 20,
-      padding: 20,
-      fontSize: 20,
-      color: colors.text,
-      borderWidth: 1.5,
-      borderColor: colors.primarySoft,
-      marginBottom: 30,
-      textAlign: 'center',
-      fontWeight: '600'
-    },
-    userNameButton: {
-      backgroundColor: colors.primary,
-      paddingHorizontal: 40,
-      paddingVertical: 18,
-      borderRadius: 20,
-      width: '100%',
-      alignItems: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.4,
-      shadowRadius: 15,
-      elevation: 10
-    },
-    userNameButtonText: {
-      color: '#111',
-      fontSize: 16,
-      fontWeight: '900',
-      letterSpacing: 1
+      backgroundColor: colors.bg,
+      padding: 24,
     },
 
-    // Header Bar Stilleri
+    // Header Bar
     headerBar: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-      paddingTop: Platform.OS === 'android' ? 45 : 55,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      paddingTop: Platform.OS === 'android' ? 44 : 50,
       backgroundColor: colors.bg,
-      zIndex: 1000,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border
+      borderBottomColor: colors.border,
+      zIndex: 10,
     },
-    headerBtn: {
-      width: 48,
-      height: 48,
-      borderRadius: 16,
-      backgroundColor: colors.border,
-      justifyContent: 'center',
+    terminalBadgeBox: {
+      flexDirection: 'row',
       alignItems: 'center',
+    },
+    terminalIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
-      borderColor: colors.border
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    livePulseDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.tertiary,
+    },
+    terminalStatusText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.tertiary,
+      letterSpacing: 0.5,
+    },
+    terminalNameText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.text,
+      maxWidth: 105,
+    },
+    headerCenterPill: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    headerTitleText: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: colors.text,
+      letterSpacing: -0.3,
+    },
+    headerVersionPill: {
+      backgroundColor: colors.surfaceHigh,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: 6,
+      marginTop: 2,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerVersionText: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: colors.primary,
+      letterSpacing: 0.5,
+    },
+    headerSquareBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     headerBtnActive: {
-      backgroundColor: colors.primarySoft,
-      borderColor: colors.primarySoft
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
     },
-    headerCenter: {
-      alignItems: 'center'
+    scannerToggleBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      height: 40,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.primary,
     },
-    headerTitle: {
-      color: colors.text,
-      fontSize: 18,
+    scannerToggleBtnActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    scannerToggleBtnText: {
+      fontSize: 12,
       fontWeight: '800',
-      letterSpacing: 0.5
+      color: colors.primary,
+      letterSpacing: 0.5,
     },
-    headerSubtitle: {
+
+    // Viewfinder Camera Box (Stitch Screen eacb9beb4b91453eb420fa7e54c1c63f)
+    cameraBox: {
+      height: SCREEN_HEIGHT * 0.32,
+      margin: 12,
+      borderRadius: 20,
+      overflow: 'hidden',
+      position: 'relative',
+      backgroundColor: '#000',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    viewfinderTintOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(6, 14, 32, 0.45)',
+    },
+    viewfinderTopHUD: {
+      position: 'absolute',
+      top: 12,
+      left: 12,
+      right: 12,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      zIndex: 10,
+    },
+    viewfinderBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: 'rgba(6, 14, 32, 0.85)',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 20,
+    },
+    viewfinderPingDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.tertiary,
+    },
+    viewfinderBadgeText: {
+      color: colors.tertiary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    viewfinderFormatTag: {
+      backgroundColor: 'rgba(30, 41, 59, 0.85)',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    viewfinderFormatText: {
       color: colors.textMuted,
-      fontSize: 11,
-      marginTop: 4,
-      fontWeight: '500'
+      fontSize: 10,
+      fontWeight: '700',
     },
+    reticleOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    targetReticleFrame: {
+      width: 250,
+      height: 125,
+      position: 'relative',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    cornerBracket: {
+      position: 'absolute',
+      width: 18,
+      height: 18,
+      borderColor: colors.primary,
+    },
+    bracketTL: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 4 },
+    bracketTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 4 },
+    bracketBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 4 },
+    bracketBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 4 },
+    laserScanLine: {
+      position: 'absolute',
+      left: 10,
+      right: 10,
+      height: 2,
+      backgroundColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOpacity: 0.8,
+      shadowRadius: 8,
+      elevation: 5,
+    },
+    centerCrosshair: {
+      opacity: 0.5,
+    },
+    viewfinderAlignPill: {
+      marginTop: 12,
+      backgroundColor: 'rgba(6, 14, 32, 0.8)',
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      borderRadius: 12,
+    },
+    viewfinderAlignText: {
+      color: colors.primary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1,
+    },
+    viewfinderBottomControls: {
+      position: 'absolute',
+      bottom: 12,
+      right: 12,
+      zIndex: 10,
+    },
+    hudTorchBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: 'rgba(15, 23, 42, 0.85)',
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    hudTorchBtnActive: {
+      backgroundColor: colors.warning,
+      borderColor: colors.warning,
+    },
+    hudTorchBtnText: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+
+    // Sync Banner
     syncBanner: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primarySoft,
-      paddingVertical: 12,
-      gap: 12,
+      gap: 10,
+      backgroundColor: colors.primaryGlow,
+      paddingVertical: 8,
       borderBottomWidth: 1,
-      borderBottomColor: colors.primarySoft
+      borderBottomColor: colors.border,
     },
     syncBannerText: {
       color: colors.primary,
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '700',
-      letterSpacing: 0.5
     },
 
-    cameraBox: {
-      height: SCREEN_HEIGHT * 0.30,
-      overflow: 'hidden',
-      position: 'relative',
-      margin: 15,
-      borderRadius: 24,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: '#000'
-    },
-    overlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    flashBtn: {
-      position: 'absolute',
-      bottom: 15,
-      right: 15,
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: 'rgba(0, 0, 0, 0.6)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
-      zIndex: 100
-    },
-    flashBtnActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary
-    },
-    topControls: { position: 'absolute', top: 25, right: 20, zIndex: 10 },
-    glassBtn: { /* Unused natively right now, ignored */ },
-    torchActive: { /* Handled in flashBtnActive */ },
-    targetFrame: {
-      width: 260,
-      height: 140,
-      borderWidth: 2,
-      borderColor: colors.primary,
-      borderRadius: 16,
-      backgroundColor: colors.primarySoft,
-      borderStyle: 'dashed'
-    },
-    syncOverlay: { /* Unused natively right now */ },
-    syncLongText: { /* Unused natively right now */ },
-
-    resultPanel: {
+    // Main Content Area
+    contentContainer: {
       flex: 1,
-      backgroundColor: colors.card,
-      borderTopLeftRadius: 32,
-      borderTopRightRadius: 32,
-      padding: 24,
-      marginTop: 5,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -10 },
-      shadowOpacity: 0.5,
-      shadowRadius: 20,
-      elevation: 20,
-      borderTopWidth: 1,
-      borderTopColor: colors.border
+      paddingHorizontal: 16,
+      paddingTop: 12,
     },
-    searchContainer: {
+
+    // Search Section
+    searchBarWrapper: {
       flexDirection: 'row',
-      backgroundColor: colors.border,
-      borderRadius: 20,
-      paddingHorizontal: 20,
-      height: 56,
       alignItems: 'center',
-      marginBottom: 20,
+      backgroundColor: colors.surface,
+      borderRadius: 14,
       borderWidth: 1,
-      borderColor: colors.border
+      borderColor: colors.border,
+      height: 52,
+      paddingHorizontal: 12,
+      marginBottom: 10,
     },
-    searchInput: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '500' },
-    clearSearch: { position: 'absolute', right: 50, zIndex: 10, padding: 5 },
-    micSearch: { position: 'absolute', right: 15, zIndex: 10, padding: 5 },
-    searchResultsList: { flex: 1 },
-    searchResultItem: {
+    searchIconBox: {
+      marginRight: 8,
+    },
+    searchInput: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '500',
+    },
+    clearSearchBtn: {
+      padding: 6,
+    },
+    voiceMicBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 9,
+      backgroundColor: colors.surfaceHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginLeft: 6,
+    },
+    voiceMicBtnActive: {
+      backgroundColor: colors.danger,
+      borderColor: colors.danger,
+    },
+    quickChipsScroll: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 12,
+    },
+    quickChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    quickChipText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
+
+    // Search Result List
+    searchResultsList: {
+      flex: 1,
+    },
+    searchResultCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      padding: 14,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 8,
+    },
+    searchItemCode: {
+      color: colors.textOutline,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    discountBadgeSmall: {
+      backgroundColor: colors.dangerContainer,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: 4,
+      borderWidth: 0.5,
+      borderColor: colors.danger,
+    },
+    discountBadgeSmallText: {
+      color: colors.danger,
+      fontSize: 10,
+      fontWeight: '800',
+    },
+    searchResultName: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '700',
+      marginBottom: 4,
+    },
+    searchResultPrice: {
+      color: colors.primary,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    stokBadge: {
+      backgroundColor: colors.tertiaryContainer,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 10,
+      alignItems: 'center',
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: colors.tertiary,
+    },
+    stokBadgeZero: {
+      backgroundColor: colors.dangerContainer,
+      borderColor: colors.danger,
+    },
+    stokBadgeText: {
+      color: colors.tertiary,
+      fontSize: 13,
+      fontWeight: '900',
+    },
+    stokBadgeTextZero: {
+      color: colors.danger,
+    },
+    stokBadgeUnit: {
+      color: colors.textOutline,
+      fontSize: 9,
+      fontWeight: '700',
+      marginTop: 1,
+    },
+
+    // Product Detail Card (Stitch Screen 1fe78bd95d1f4d2cb066d97d48bbf35d)
+    detailContainer: {
+      flex: 1,
+      paddingBottom: 20,
+    },
+    detailContextBar: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: 16,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border
+      marginBottom: 12,
     },
-    searchResultName: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
-    searchResultDetail: { color: colors.textMuted, fontSize: 12, fontWeight: '500' },
-    infoContainer: { paddingBottom: 30 },
-    priceRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginBottom: 12 },
-    priceText: { color: colors.primary, fontSize: 56, fontWeight: '900', letterSpacing: -2, textShadowColor: colors.primarySoft, textShadowOffset: { width: 0, height: 4 }, textShadowRadius: 15 },
-    currencyText: { color: colors.primary, fontSize: 22, fontWeight: '800' },
-    nameText: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center', marginBottom: 25, lineHeight: 28 },
-    codesRow: {
+    detailContextText: {
+      color: colors.textOutline,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+    detailOnlinePill: {
       flexDirection: 'row',
-      backgroundColor: colors.border,
-      borderRadius: 20,
-      padding: 18,
-      marginBottom: 24,
-      borderWidth: 1,
-      borderColor: colors.border
-    },
-    codeItem: { flex: 1, alignItems: 'center' },
-    codeLabel: { color: colors.textMuted, fontSize: 9, letterSpacing: 1, marginBottom: 8, fontWeight: '800' },
-    codeValue: { color: colors.text, fontSize: 14, fontWeight: '700' },
-
-    nextButton: { backgroundColor: colors.primary, padding: 18, borderRadius: 20, alignItems: 'center' },
-    actionRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 15, marginTop: 10 },
-    nextButtonSmall: {
-      flex: 1,
-      backgroundColor: colors.primarySoft,
-      padding: 18,
-      borderRadius: 20,
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: colors.primarySoft
+      gap: 5,
+      backgroundColor: colors.tertiaryContainer,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+      borderWidth: 0.5,
+      borderColor: colors.tertiary,
     },
-    reportButton: {
-      flex: 1.2,
-      backgroundColor: colors.primary,
-      padding: 18,
-      borderRadius: 20,
-      alignItems: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 10,
-      elevation: 8
+    detailOnlinePillText: {
+      color: colors.tertiary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
     },
-    reportedButton: { backgroundColor: '#334155', borderColor: '#334155', opacity: 0.7, shadowOpacity: 0 },
-    buttonText: { color: colors.text, fontWeight: '800', fontSize: 13, textAlign: 'center', letterSpacing: 0.5 },
-    mainSyncButton: { /* Unused */ },
-    mainSyncButtonText: { /* Unused */ },
 
-    idleState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50 },
-    idleText: { color: colors.textMuted, fontSize: 16, fontWeight: '600', marginTop: 8 },
-    footer: { backgroundColor: colors.card, paddingBottom: 25, alignItems: 'center' },
-    statsContainer: { backgroundColor: colors.primarySoft, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 16, marginBottom: 15 },
-    statsText: { color: colors.primary, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
-    footerBrand: { color: 'rgba(138,154,181,0.3)', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-
-    // Modal Styles
-    modal: { justifyContent: 'center', margin: 20 },
-    modalContent: {
-      backgroundColor: colors.card,
-      borderRadius: 32,
-      padding: 24,
+    // Hero Price Card
+    heroPriceCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      padding: 20,
       borderWidth: 1,
       borderColor: colors.border,
+      marginBottom: 12,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 20 },
-      shadowOpacity: 0.5,
-      shadowRadius: 25,
-      elevation: 24
-    },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
-    modalLabel: { color: colors.primary, fontSize: 14, fontWeight: '800', marginBottom: 20 },
-    modalInput: {
-      backgroundColor: 'rgba(0,0,0,0.2)',
-      borderRadius: 20,
-      padding: 18,
-      color: colors.text,
-      height: 120,
-      textAlignVertical: 'top',
-      marginBottom: 24,
-      fontSize: 16,
-      borderWidth: 1,
-      borderColor: colors.border
-    },
-    modalSubmit: {
-      padding: 18,
-      borderRadius: 20,
-      alignItems: 'center',
-      backgroundColor: colors.primary,
-      shadowColor: colors.primary,
       shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.3,
+      shadowOpacity: 0.35,
       shadowRadius: 12,
-      elevation: 5
+      elevation: 6,
     },
-    modalSubmitText: { color: '#111', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
-
-    // Stok Badge
-    stokBadge: {
-      backgroundColor: colors.successSoft,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 12,
-      marginRight: 10,
-      minWidth: 60,
+    heroPriceTopRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: colors.successSoft
     },
-    stokBadgeText: { color: colors.success, fontSize: 13, fontWeight: '900' },
-    stokBadgeTextZero: { color: colors.danger },
-
-    // Depo Stok
-    depoStokContainer: {
-      backgroundColor: colors.successSoft,
-      borderRadius: 24,
-      padding: 20,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.successSoft
+    heroPriceLabel: {
+      color: colors.textOutline,
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 1,
     },
-    depoStokHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.successSoft },
-    depoStokTitle: { color: colors.success, fontSize: 13, fontWeight: '900', letterSpacing: 1, marginLeft: 10 },
-    depoStokEmpty: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
-    depoStokEmptyText: { color: colors.textMuted, fontSize: 14, marginLeft: 8, fontWeight: '600' },
-    depoStokItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-    depoStokLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    depoStokNo: { backgroundColor: colors.successSoft, color: colors.success, fontSize: 11, fontWeight: '900', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginRight: 12 },
-    depoStokAdi: { color: colors.text, fontSize: 14, flex: 1, fontWeight: '600' },
-    depoStokRight: { alignItems: 'flex-end', minWidth: 80 },
-    depoStokMiktar: { color: colors.success, fontSize: 18, fontWeight: '900' },
-    depoStokMiktarNegatif: { color: colors.danger },
-    depoStokBirim: { color: colors.textMuted, fontSize: 10, marginTop: 2, fontWeight: '700', letterSpacing: 0.5 },
-    depoStokToplam: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.successSoft },
-    depoStokToplamLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '900', letterSpacing: 1 },
-    depoStokToplamValue: { color: colors.success, fontSize: 18, fontWeight: '900' },
+    heroDiscountBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.danger,
+      paddingHorizontal: 9,
+      paddingVertical: 3,
+      borderRadius: 8,
+      shadowColor: colors.danger,
+      shadowOpacity: 0.4,
+      shadowRadius: 6,
+      elevation: 4,
+    },
+    heroDiscountBadgeText: {
+      color: '#fff',
+      fontSize: 12,
+      fontWeight: '900',
+    },
+    heroPriceLockup: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'center',
+      marginVertical: 10,
+    },
+    heroPriceNumber: {
+      color: colors.primary,
+      fontSize: 50,
+      fontWeight: '900',
+      letterSpacing: -1.5,
+    },
+    heroPriceCurrency: {
+      color: colors.primary,
+      fontSize: 22,
+      fontWeight: '800',
+      marginLeft: 8,
+    },
+    heroPriceDatePill: {
+      backgroundColor: colors.surfaceLowest,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      alignSelf: 'center',
+      marginTop: 4,
+      borderWidth: 0.5,
+      borderColor: colors.border,
+    },
+    heroPriceDateText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      textAlign: 'center',
+    },
 
-    noInternetWarning: {
+    // Product Title Card
+    productTitleCard: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 12,
+    },
+    productCategoryLabel: {
+      color: colors.primary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.8,
+      marginBottom: 4,
+    },
+    productNameText: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: '800',
+      lineHeight: 23,
+    },
+    titleEditBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    // 4-Column Spec Grid
+    specGridRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 12,
+    },
+    specGridCell: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      justifyContent: 'center',
+    },
+    specGridCellHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    specCellLabel: {
+      color: colors.textOutline,
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+      marginBottom: 4,
+    },
+    specCellValue: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+
+    // Warehouse Inventory Card
+    warehouseCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+      marginBottom: 12,
+    },
+    warehouseHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceHigh,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    warehouseTitle: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    warehouseHeaderTag: {
+      backgroundColor: colors.tertiaryContainer,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 6,
+      borderWidth: 0.5,
+      borderColor: colors.tertiary,
+    },
+    warehouseHeaderTagText: {
+      color: colors.tertiary,
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    warehouseEmptyBox: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.warningSoft,
+      paddingVertical: 20,
+      gap: 8,
+    },
+    warehouseEmptyText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      fontWeight: '500',
+    },
+    warehouseRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderSubtle,
+    },
+    warehouseStatusDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 3.5,
+      backgroundColor: colors.tertiary,
+    },
+    warehouseName: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    warehouseCode: {
+      color: colors.textOutline,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    warehouseAmountBadge: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 3,
+      backgroundColor: colors.surfaceHigh,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
+      borderWidth: 0.5,
+      borderColor: colors.border,
+    },
+    warehouseAmountText: {
+      color: colors.tertiary,
+      fontSize: 15,
+      fontWeight: '900',
+    },
+    warehouseUnitText: {
+      color: colors.textOutline,
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    warehouseTotalRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: colors.surfaceHighest,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+    },
+    warehouseTotalLabel: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    warehouseTotalValue: {
+      color: colors.tertiary,
+      fontSize: 20,
+      fontWeight: '900',
+    },
+    warehouseTotalUnit: {
+      color: colors.textOutline,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+
+    offlineWarningPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.warningContainer,
+      borderRadius: 12,
+      padding: 12,
       borderWidth: 1,
-      borderColor: colors.warningSoft,
+      borderColor: colors.warning,
+      gap: 8,
+      marginBottom: 12,
+    },
+    offlineWarningText: {
+      color: colors.warning,
+      fontSize: 12,
+      fontWeight: '600',
+      flex: 1,
+    },
+
+    // Idle Reticle HUD View (Stitch Screen c117cd3c34f946b58e6b0cdc10e4e912)
+    idleStateContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 24,
+    },
+    idleReticleBox: {
+      width: 180,
+      height: 180,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      marginBottom: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.4,
+      shadowRadius: 18,
+      elevation: 8,
+    },
+    idleBarcodeText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 2,
+      marginTop: 6,
+    },
+    idleInstructionTitle: {
+      color: colors.text,
+      fontSize: 19,
+      fontWeight: '800',
+      textAlign: 'center',
+      letterSpacing: -0.5,
+      marginBottom: 6,
+    },
+    idleInstructionDesc: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: 'center',
+      maxWidth: 290,
+      lineHeight: 18,
+      marginBottom: 22,
+    },
+    idleTriggerCameraBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      width: '100%',
+      maxWidth: 320,
+      backgroundColor: colors.secondary,
+      paddingHorizontal: 18,
+      paddingVertical: 14,
+      borderRadius: 16,
+      shadowColor: colors.secondary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+      elevation: 8,
+    },
+    idleCameraIconSquare: {
+      width: 36,
+      height: 36,
+      borderRadius: 9,
+      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    idleCameraBtnTitle: {
+      color: '#fff',
+      fontSize: 14,
+      fontWeight: '900',
+      letterSpacing: 0.5,
+    },
+    idleCameraBtnSubtitle: {
+      color: 'rgba(255, 255, 255, 0.75)',
+      fontSize: 10,
+      marginTop: 2,
+    },
+    idleDatabaseBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: 22,
+    },
+    idleDatabaseBadgeText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+
+    // Sticky Bottom Command Deck
+    bottomCommandDeck: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: Platform.OS === 'android' ? 16 : 24,
+      flexDirection: 'row',
+      gap: 12,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 14,
+      elevation: 10,
+    },
+    bottomSecondaryBtn: {
+      flex: 1,
+      height: 48,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    bottomSecondaryBtnText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    bottomPrimaryBtn: {
+      flex: 1.2,
+      height: 48,
+      borderRadius: 12,
+      backgroundColor: colors.tertiary,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      shadowColor: colors.tertiary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 10,
+      elevation: 6,
+    },
+    bottomPrimaryBtnText: {
+      color: '#fff',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    bottomReportBtn: {
+      flex: 1.2,
+      height: 48,
+      borderRadius: 12,
+      backgroundColor: colors.warning,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      shadowColor: colors.warning,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 10,
+      elevation: 6,
+    },
+    bottomReportBtnReported: {
+      backgroundColor: colors.surfaceHighest,
+      shadowOpacity: 0,
+    },
+    bottomReportBtnText: {
+      color: '#fff',
+      fontSize: 12,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+
+    // Footer
+    footerContainer: {
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.bg,
+    },
+    footerBrandText: {
+      color: colors.textOutline,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+
+    // Floating Action Toast
+    floatingToast: {
+      position: 'absolute',
+      top: Platform.OS === 'android' ? 55 : 65,
+      alignSelf: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.surfaceHighest,
+      paddingHorizontal: 16,
+      paddingVertical: 9,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.5,
+      shadowRadius: 16,
+      elevation: 12,
+      zIndex: 9999,
+    },
+    floatingToastText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+
+    // Modals (Stitch Screen a0167000d8bd49509a63c586ac7b1d4a)
+    modalCentered: {
+      justifyContent: 'center',
+      margin: 16,
+    },
+    modalCardContainer: {
+      backgroundColor: colors.surface,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 20,
+      position: 'relative',
+      overflow: 'hidden',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 16 },
+      shadowOpacity: 0.6,
+      shadowRadius: 28,
+      elevation: 20,
+    },
+    modalTopAmberStrip: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 3,
+      backgroundColor: colors.warning,
+    },
+    modalCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 16,
+      paddingTop: 4,
+    },
+    modalWarningIconBox: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      backgroundColor: colors.warningContainer,
+      borderWidth: 1,
+      borderColor: colors.warning,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    modalMainTitle: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: '800',
+    },
+    modalTagErpYok: {
+      backgroundColor: colors.dangerContainer,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: 4,
+      borderWidth: 0.5,
+      borderColor: colors.danger,
+    },
+    modalTagErpYokText: {
+      color: colors.danger,
+      fontSize: 10,
+      fontWeight: '800',
+    },
+    modalSubtitle: {
+      color: colors.textMuted,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    modalBarcodeStrip: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceHigh,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 12,
+    },
+    modalBarcodeStripLabel: {
+      color: colors.textOutline,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    modalBarcodeValuePill: {
+      backgroundColor: colors.surface,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.primary,
+    },
+    modalBarcodeValueText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    modalQuickTagsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginBottom: 12,
+    },
+    modalQuickTagBtn: {
+      backgroundColor: colors.surfaceHigh,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    modalQuickTagText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    modalTextInput: {
+      backgroundColor: colors.surfaceLowest,
+      borderRadius: 14,
+      padding: 14,
+      color: colors.text,
+      fontSize: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      height: 90,
+      textAlignVertical: 'top',
+      marginBottom: 12,
+    },
+    modalTelegramBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(34, 158, 217, 0.1)',
+      borderWidth: 1,
+      borderColor: 'rgba(34, 158, 217, 0.3)',
+      borderRadius: 10,
+      padding: 10,
+      gap: 8,
+      marginBottom: 16,
+    },
+    modalTelegramBannerText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      flex: 1,
+      lineHeight: 15,
+    },
+    modalSendActionBtn: {
+      height: 48,
+      borderRadius: 14,
+      backgroundColor: colors.warning,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: colors.warning,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 10,
+      elevation: 6,
+      marginBottom: 8,
+    },
+    modalSendActionBtnText: {
+      color: '#fff',
+      fontSize: 13,
+      fontWeight: '900',
+      letterSpacing: 0.5,
+    },
+    modalDismissBtn: {
+      paddingVertical: 8,
+      alignItems: 'center',
+    },
+    modalDismissBtnText: {
+      color: colors.textOutline,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+
+    // Operator Onboarding Modal Styles
+    userNameContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+      backgroundColor: colors.bg,
+    },
+    operatorAvatarBox: {
+      width: 90,
+      height: 90,
+      borderRadius: 24,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 20,
+    },
+    userNameTitle: {
+      color: colors.text,
+      fontSize: 26,
+      fontWeight: '900',
+      letterSpacing: -0.5,
+      marginBottom: 6,
+    },
+    userNameSubtitle: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: 'center',
+      marginBottom: 30,
+      maxWidth: 280,
+    },
+    userNameInput: {
+      width: '100%',
+      backgroundColor: colors.surface,
       borderRadius: 16,
       padding: 16,
-      marginBottom: 20
+      fontSize: 17,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 20,
+      textAlign: 'center',
+      fontWeight: '700',
     },
-    noInternetText: { color: colors.warning, fontSize: 14, fontWeight: '700', marginLeft: 10 }
-  });
+    industrialPrimaryBtn: {
+      backgroundColor: colors.secondary,
+      paddingVertical: 16,
+      borderRadius: 16,
+      width: '100%',
+      alignItems: 'center',
+      shadowColor: colors.secondary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    industrialPrimaryBtnText: {
+      color: '#fff',
+      fontSize: 14,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+    },
 
+    // Progress Bar
+    downloadIconRing: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    progressBarTrack: {
+      width: '75%',
+      height: 8,
+      backgroundColor: colors.surfaceHigh,
+      borderRadius: 4,
+      marginTop: 20,
+      overflow: 'hidden',
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: colors.primary,
+      borderRadius: 4,
+    },
+  });
 };

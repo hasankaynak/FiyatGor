@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  useWindowDimensions,
   useColorScheme
 } from 'react-native';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
@@ -72,8 +73,8 @@ const GITHUB_REPO = 'FiyatGor';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const GITHUB_RAW_VERSION_URL = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/version.json`;
 const FALLBACK_UPDATE_URL = 'http://185.136.205.19:3000/updates/version.json';
-const CURRENT_VERSION = '1.0.14';
-const CURRENT_VERSION_CODE = 14;
+const CURRENT_VERSION = '1.0.15';
+const CURRENT_VERSION_CODE = 15;
 
 const parseVersion = (v: string): number[] => {
   const clean = (v || '').replace(/^v/i, '').trim();
@@ -113,10 +114,15 @@ const normalizeText = (text: string) => {
 };
 
 export default function App() {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
+  const isSmallPhone = windowWidth < 380;
+  const isLandscape = windowWidth > windowHeight;
+
   const colorScheme = useColorScheme();
   const [manualTheme, setManualTheme] = useState<'system' | 'dark' | 'light'>('dark');
   const isDark = manualTheme === 'system' ? colorScheme === 'dark' : manualTheme === 'dark';
-  const styles = getStyles(isDark);
+  const styles = getStyles(isDark, windowWidth, windowHeight, isTablet, isSmallPhone, isLandscape);
   const colors = getThemeColors(isDark);
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -684,23 +690,25 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <View style={styles.userNameContainer}>
-          <View style={styles.operatorAvatarBox}>
-            <Ionicons name="person-outline" size={48} color={colors.primary} />
+          <View style={styles.userNameCard}>
+            <View style={styles.operatorAvatarBox}>
+              <Ionicons name="person-outline" size={isSmallPhone ? 40 : 48} color={colors.primary} />
+            </View>
+            <Text style={styles.userNameTitle}>Operatör Girişi</Text>
+            <Text style={styles.userNameSubtitle}>Eksik ürün bildirimleri ve işlemler için adınızı belirleyin</Text>
+            <TextInput
+              style={styles.userNameInput}
+              placeholder="Adınız Soyadınız..."
+              placeholderTextColor={colors.textOutline}
+              value={userNameInput}
+              onChangeText={setUserNameInput}
+              autoCapitalize="words"
+              autoFocus
+            />
+            <TouchableOpacity style={styles.industrialPrimaryBtn} onPress={saveUserName}>
+              <Text style={styles.industrialPrimaryBtnText}>KAYDET VE BAŞLA</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.userNameTitle}>Operatör Girişi</Text>
-          <Text style={styles.userNameSubtitle}>Eksik ürün bildirimleri ve işlemler için adınızı belirleyin</Text>
-          <TextInput
-            style={styles.userNameInput}
-            placeholder="Adınız Soyadınız..."
-            placeholderTextColor={colors.textOutline}
-            value={userNameInput}
-            onChangeText={setUserNameInput}
-            autoCapitalize="words"
-            autoFocus
-          />
-          <TouchableOpacity style={styles.industrialPrimaryBtn} onPress={saveUserName}>
-            <Text style={styles.industrialPrimaryBtnText}>KAYDET VE BAŞLA</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -734,6 +742,7 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={styles.appShellWrapper}>
 
         {/* 1. TOP INDUSTRIAL HEADER BAR (Stitch Header Specification) */}
         <View style={styles.headerBar}>
@@ -844,7 +853,7 @@ export default function App() {
                       transform: [{
                         translateY: laserAnim.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [10, 110]
+                          outputRange: [10, isTablet ? 135 : 105]
                         })
                       }]
                     }
@@ -916,7 +925,12 @@ export default function App() {
 
           {/* Quick Context Filter Chips (Stitch Specification) */}
           {!product && searchResults.length === 0 && (
-            <View style={styles.quickChipsScroll}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickChipsScroll}
+              style={{ maxHeight: 44, marginBottom: 10 }}
+            >
               <TouchableOpacity style={styles.quickChip} onPress={() => handleSearch('DURU')} activeOpacity={0.7}>
                 <Ionicons name="time-outline" size={14} color={colors.primary} />
                 <Text style={styles.quickChipText}>HIZLI ARAMA</Text>
@@ -929,7 +943,7 @@ export default function App() {
                 <Ionicons name="shield-checkmark-outline" size={14} color={colors.textOutline} />
                 <Text style={styles.quickChipText}>GÜNCELLEME</Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           )}
 
           {/* Search Autocomplete List */}
@@ -998,7 +1012,13 @@ export default function App() {
                     </View>
 
                     <View style={styles.heroPriceLockup}>
-                      <Text style={styles.heroPriceNumber}>{formatPrice(product.price)}</Text>
+                      <Text 
+                        style={styles.heroPriceNumber}
+                        adjustsFontSizeToFit
+                        numberOfLines={1}
+                      >
+                        {formatPrice(product.price)}
+                      </Text>
                       <Text style={styles.heroPriceCurrency}>{product.currency || 'TL'}</Text>
                     </View>
 
@@ -1137,7 +1157,7 @@ export default function App() {
                           transform: [{
                             translateY: laserAnim.interpolate({
                               inputRange: [0, 1],
-                              outputRange: [15, 130]
+                              outputRange: [15, isSmallPhone ? 105 : isTablet ? 170 : 130]
                             })
                           }]
                         }
@@ -1233,6 +1253,7 @@ export default function App() {
           </View>
         )}
 
+        </View>
       </KeyboardAvoidingView>
 
       {/* Floating Action Toast */}
@@ -1410,9 +1431,16 @@ const getThemeColors = (isDark: boolean) => {
 };
 
 // -------------------------------------------------------------
-// STITCH INDUSTRIAL STYLESHEET
+// STITCH INDUSTRIAL STYLESHEET (Responsive for all screens)
 // -------------------------------------------------------------
-const getStyles = (isDark: boolean) => {
+const getStyles = (
+  isDark: boolean,
+  windowWidth: number,
+  windowHeight: number,
+  isTablet: boolean,
+  isSmallPhone: boolean,
+  isLandscape: boolean
+) => {
   const colors = getThemeColors(isDark);
 
   return StyleSheet.create({
@@ -1420,12 +1448,19 @@ const getStyles = (isDark: boolean) => {
       flex: 1,
       backgroundColor: colors.bg,
     },
+    appShellWrapper: {
+      flex: 1,
+      width: '100%',
+      maxWidth: isTablet ? 760 : undefined,
+      alignSelf: 'center',
+      position: 'relative',
+    },
     centered: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
       backgroundColor: colors.bg,
-      padding: 24,
+      padding: isSmallPhone ? 16 : 24,
     },
 
     // Header Bar
@@ -1433,8 +1468,8 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 10,
+      paddingHorizontal: isSmallPhone ? 10 : isTablet ? 20 : 16,
+      paddingVertical: isSmallPhone ? 8 : 10,
       paddingTop: Platform.OS === 'android' ? 44 : 50,
       backgroundColor: colors.bg,
       borderBottomWidth: 1,
@@ -1446,9 +1481,9 @@ const getStyles = (isDark: boolean) => {
       alignItems: 'center',
     },
     terminalIconWrap: {
-      width: 38,
-      height: 38,
-      borderRadius: 10,
+      width: isSmallPhone ? 32 : 38,
+      height: isSmallPhone ? 32 : 38,
+      borderRadius: isSmallPhone ? 8 : 10,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
       borderColor: colors.border,
@@ -1462,25 +1497,25 @@ const getStyles = (isDark: boolean) => {
       backgroundColor: colors.tertiary,
     },
     terminalStatusText: {
-      fontSize: 9,
+      fontSize: isSmallPhone ? 8 : 9,
       fontWeight: '800',
       color: colors.tertiary,
       letterSpacing: 0.5,
     },
     terminalNameText: {
-      fontSize: 13,
+      fontSize: isSmallPhone ? 11 : 13,
       fontWeight: '700',
       color: colors.text,
-      maxWidth: 105,
+      maxWidth: isSmallPhone ? 75 : isTablet ? 180 : 105,
     },
     headerCenterPill: {
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 8,
+      paddingHorizontal: isSmallPhone ? 4 : 8,
       paddingVertical: 4,
     },
     headerTitleText: {
-      fontSize: 15,
+      fontSize: isSmallPhone ? 13 : isTablet ? 17 : 15,
       fontWeight: '800',
       color: colors.text,
       letterSpacing: -0.3,
@@ -1495,14 +1530,14 @@ const getStyles = (isDark: boolean) => {
       borderColor: colors.border,
     },
     headerVersionText: {
-      fontSize: 9,
+      fontSize: isSmallPhone ? 8 : 9,
       fontWeight: '700',
       color: colors.primary,
       letterSpacing: 0.5,
     },
     headerSquareBtn: {
-      width: 40,
-      height: 40,
+      width: isSmallPhone ? 35 : 40,
+      height: isSmallPhone ? 35 : 40,
       borderRadius: 10,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
@@ -1517,9 +1552,9 @@ const getStyles = (isDark: boolean) => {
     scannerToggleBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
-      height: 40,
-      paddingHorizontal: 12,
+      gap: isSmallPhone ? 3 : 5,
+      height: isSmallPhone ? 35 : 40,
+      paddingHorizontal: isSmallPhone ? 8 : 12,
       borderRadius: 10,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
@@ -1530,17 +1565,17 @@ const getStyles = (isDark: boolean) => {
       borderColor: colors.primary,
     },
     scannerToggleBtnText: {
-      fontSize: 12,
+      fontSize: isSmallPhone ? 11 : 12,
       fontWeight: '800',
       color: colors.primary,
       letterSpacing: 0.5,
     },
 
-    // Viewfinder Camera Box (Stitch Screen eacb9beb4b91453eb420fa7e54c1c63f)
+    // Viewfinder Camera Box (Responsive HUD)
     cameraBox: {
-      height: SCREEN_HEIGHT * 0.32,
-      margin: 12,
-      borderRadius: 20,
+      height: isLandscape ? Math.min(windowHeight * 0.45, 260) : Math.min(windowHeight * (isTablet ? 0.35 : 0.28), 280),
+      margin: isSmallPhone ? 8 : 12,
+      borderRadius: isSmallPhone ? 14 : 18,
       overflow: 'hidden',
       position: 'relative',
       backgroundColor: '#000',
@@ -1599,8 +1634,8 @@ const getStyles = (isDark: boolean) => {
       alignItems: 'center',
     },
     targetReticleFrame: {
-      width: 250,
-      height: 125,
+      width: Math.min(windowWidth * 0.68, isTablet ? 360 : 250),
+      height: Math.min(windowWidth * 0.34, isTablet ? 150 : 120),
       position: 'relative',
       justifyContent: 'center',
       alignItems: 'center',
@@ -1689,8 +1724,8 @@ const getStyles = (isDark: boolean) => {
     // Main Content Area
     contentContainer: {
       flex: 1,
-      paddingHorizontal: 16,
-      paddingTop: 12,
+      paddingHorizontal: isSmallPhone ? 10 : 16,
+      paddingTop: isSmallPhone ? 8 : 12,
     },
 
     // Search Section
@@ -1701,9 +1736,9 @@ const getStyles = (isDark: boolean) => {
       borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.border,
-      height: 52,
-      paddingHorizontal: 12,
-      marginBottom: 10,
+      height: isSmallPhone ? 46 : 52,
+      paddingHorizontal: isSmallPhone ? 10 : 12,
+      marginBottom: isSmallPhone ? 8 : 10,
     },
     searchIconBox: {
       marginRight: 8,
@@ -1711,7 +1746,7 @@ const getStyles = (isDark: boolean) => {
     searchInput: {
       flex: 1,
       color: colors.text,
-      fontSize: 15,
+      fontSize: isSmallPhone ? 13 : 15,
       fontWeight: '500',
     },
     clearSearchBtn: {
@@ -1734,23 +1769,23 @@ const getStyles = (isDark: boolean) => {
     },
     quickChipsScroll: {
       flexDirection: 'row',
-      gap: 8,
-      marginBottom: 12,
+      gap: isSmallPhone ? 6 : 8,
+      paddingRight: 16,
     },
     quickChip: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 5,
       backgroundColor: colors.surface,
-      paddingHorizontal: 12,
-      paddingVertical: 7,
+      paddingHorizontal: isSmallPhone ? 9 : 12,
+      paddingVertical: isSmallPhone ? 6 : 7,
       borderRadius: 10,
       borderWidth: 1,
       borderColor: colors.border,
     },
     quickChipText: {
       color: colors.textMuted,
-      fontSize: 11,
+      fontSize: isSmallPhone ? 10 : 11,
       fontWeight: '700',
       letterSpacing: 0.3,
     },
@@ -1763,7 +1798,7 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.surface,
-      padding: 14,
+      padding: isSmallPhone ? 10 : 14,
       borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.border,
@@ -1789,22 +1824,22 @@ const getStyles = (isDark: boolean) => {
     },
     searchResultName: {
       color: colors.text,
-      fontSize: 14,
+      fontSize: isSmallPhone ? 13 : 14,
       fontWeight: '700',
       marginBottom: 4,
     },
     searchResultPrice: {
       color: colors.primary,
-      fontSize: 16,
+      fontSize: isSmallPhone ? 14 : 16,
       fontWeight: '800',
     },
     stokBadge: {
       backgroundColor: colors.tertiaryContainer,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
+      paddingHorizontal: isSmallPhone ? 8 : 10,
+      paddingVertical: 5,
       borderRadius: 10,
       alignItems: 'center',
-      marginRight: 8,
+      marginRight: 6,
       borderWidth: 1,
       borderColor: colors.tertiary,
     },
@@ -1814,7 +1849,7 @@ const getStyles = (isDark: boolean) => {
     },
     stokBadgeText: {
       color: colors.tertiary,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 11 : 13,
       fontWeight: '900',
     },
     stokBadgeTextZero: {
@@ -1827,7 +1862,7 @@ const getStyles = (isDark: boolean) => {
       marginTop: 1,
     },
 
-    // Product Detail Card (Stitch Screen 1fe78bd95d1f4d2cb066d97d48bbf35d)
+    // Product Detail Card
     detailContainer: {
       flex: 1,
       paddingBottom: 20,
@@ -1836,11 +1871,11 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 12,
+      marginBottom: 10,
     },
     detailContextText: {
       color: colors.textOutline,
-      fontSize: 11,
+      fontSize: isSmallPhone ? 10 : 11,
       fontWeight: '700',
       letterSpacing: 0.5,
     },
@@ -1865,11 +1900,11 @@ const getStyles = (isDark: boolean) => {
     // Hero Price Card
     heroPriceCard: {
       backgroundColor: colors.surface,
-      borderRadius: 18,
-      padding: 20,
+      borderRadius: isSmallPhone ? 14 : 18,
+      padding: isSmallPhone ? 14 : isTablet ? 24 : 18,
       borderWidth: 1,
       borderColor: colors.border,
-      marginBottom: 12,
+      marginBottom: isSmallPhone ? 8 : 12,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.35,
@@ -1883,7 +1918,7 @@ const getStyles = (isDark: boolean) => {
     },
     heroPriceLabel: {
       color: colors.textOutline,
-      fontSize: 11,
+      fontSize: isSmallPhone ? 10 : 11,
       fontWeight: '800',
       letterSpacing: 1,
     },
@@ -1891,7 +1926,7 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.danger,
-      paddingHorizontal: 9,
+      paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 8,
       shadowColor: colors.danger,
@@ -1901,31 +1936,31 @@ const getStyles = (isDark: boolean) => {
     },
     heroDiscountBadgeText: {
       color: '#fff',
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '900',
     },
     heroPriceLockup: {
       flexDirection: 'row',
       alignItems: 'baseline',
       justifyContent: 'center',
-      marginVertical: 10,
+      marginVertical: isSmallPhone ? 6 : 10,
     },
     heroPriceNumber: {
       color: colors.primary,
-      fontSize: 50,
+      fontSize: isSmallPhone ? 36 : isTablet ? 56 : 46,
       fontWeight: '900',
-      letterSpacing: -1.5,
+      letterSpacing: isSmallPhone ? -0.8 : -1.5,
     },
     heroPriceCurrency: {
       color: colors.primary,
-      fontSize: 22,
+      fontSize: isSmallPhone ? 18 : isTablet ? 24 : 22,
       fontWeight: '800',
-      marginLeft: 8,
+      marginLeft: isSmallPhone ? 4 : 8,
     },
     heroPriceDatePill: {
       backgroundColor: colors.surfaceLowest,
-      paddingVertical: 6,
-      paddingHorizontal: 12,
+      paddingVertical: 5,
+      paddingHorizontal: 10,
       borderRadius: 8,
       alignSelf: 'center',
       marginTop: 4,
@@ -1934,7 +1969,7 @@ const getStyles = (isDark: boolean) => {
     },
     heroPriceDateText: {
       color: colors.textMuted,
-      fontSize: 11,
+      fontSize: isSmallPhone ? 10 : 11,
       textAlign: 'center',
     },
 
@@ -1943,11 +1978,11 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       alignItems: 'flex-start',
       backgroundColor: colors.surface,
-      borderRadius: 16,
-      padding: 16,
+      borderRadius: isSmallPhone ? 12 : 16,
+      padding: isSmallPhone ? 12 : 16,
       borderWidth: 1,
       borderColor: colors.border,
-      marginBottom: 12,
+      marginBottom: isSmallPhone ? 8 : 12,
     },
     productCategoryLabel: {
       color: colors.primary,
@@ -1958,9 +1993,9 @@ const getStyles = (isDark: boolean) => {
     },
     productNameText: {
       color: colors.text,
-      fontSize: 17,
+      fontSize: isSmallPhone ? 15 : isTablet ? 19 : 17,
       fontWeight: '800',
-      lineHeight: 23,
+      lineHeight: isSmallPhone ? 21 : isTablet ? 25 : 23,
     },
     titleEditBtn: {
       width: 40,
@@ -1973,17 +2008,19 @@ const getStyles = (isDark: boolean) => {
       justifyContent: 'center',
     },
 
-    // 4-Column Spec Grid
+    // 4-Column Spec Grid (Responsive 2x2 on phones, 4-across on tablets)
     specGridRow: {
       flexDirection: 'row',
+      flexWrap: isTablet ? 'nowrap' : 'wrap',
       gap: 8,
-      marginBottom: 12,
+      marginBottom: isSmallPhone ? 8 : 12,
     },
     specGridCell: {
-      flex: 1,
+      width: isTablet ? undefined : '48.7%',
+      flex: isTablet ? 1 : undefined,
       backgroundColor: colors.surface,
       borderRadius: 12,
-      padding: 10,
+      padding: isSmallPhone ? 8 : 10,
       borderWidth: 1,
       borderColor: colors.border,
       justifyContent: 'center',
@@ -1998,36 +2035,36 @@ const getStyles = (isDark: boolean) => {
       fontSize: 9,
       fontWeight: '800',
       letterSpacing: 0.5,
-      marginBottom: 4,
+      marginBottom: 3,
     },
     specCellValue: {
       color: colors.text,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       fontWeight: '700',
     },
 
     // Warehouse Inventory Card
     warehouseCard: {
       backgroundColor: colors.surface,
-      borderRadius: 18,
+      borderRadius: isSmallPhone ? 14 : 18,
       borderWidth: 1,
       borderColor: colors.border,
       overflow: 'hidden',
-      marginBottom: 12,
+      marginBottom: isSmallPhone ? 8 : 12,
     },
     warehouseHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       backgroundColor: colors.surfaceHigh,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
+      paddingHorizontal: isSmallPhone ? 12 : 16,
+      paddingVertical: isSmallPhone ? 10 : 12,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
     warehouseTitle: {
       color: colors.text,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       fontWeight: '800',
       letterSpacing: 0.5,
     },
@@ -2049,20 +2086,20 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 20,
+      paddingVertical: 18,
       gap: 8,
     },
     warehouseEmptyText: {
       color: colors.textMuted,
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '500',
     },
     warehouseRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
+      paddingHorizontal: isSmallPhone ? 12 : 16,
+      paddingVertical: isSmallPhone ? 10 : 12,
       borderBottomWidth: 1,
       borderBottomColor: colors.borderSubtle,
     },
@@ -2074,8 +2111,9 @@ const getStyles = (isDark: boolean) => {
     },
     warehouseName: {
       color: colors.text,
-      fontSize: 14,
+      fontSize: isSmallPhone ? 13 : 14,
       fontWeight: '600',
+      flexShrink: 1,
     },
     warehouseCode: {
       color: colors.textOutline,
@@ -2087,15 +2125,16 @@ const getStyles = (isDark: boolean) => {
       alignItems: 'baseline',
       gap: 3,
       backgroundColor: colors.surfaceHigh,
-      paddingHorizontal: 10,
+      paddingHorizontal: isSmallPhone ? 8 : 10,
       paddingVertical: 4,
       borderRadius: 8,
       borderWidth: 0.5,
       borderColor: colors.border,
+      marginLeft: 8,
     },
     warehouseAmountText: {
       color: colors.tertiary,
-      fontSize: 15,
+      fontSize: isSmallPhone ? 13 : 15,
       fontWeight: '900',
     },
     warehouseUnitText: {
@@ -2108,18 +2147,18 @@ const getStyles = (isDark: boolean) => {
       alignItems: 'center',
       justifyContent: 'space-between',
       backgroundColor: colors.surfaceHighest,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
+      paddingHorizontal: isSmallPhone ? 12 : 16,
+      paddingVertical: isSmallPhone ? 10 : 14,
     },
     warehouseTotalLabel: {
       color: colors.text,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       fontWeight: '800',
       letterSpacing: 0.5,
     },
     warehouseTotalValue: {
       color: colors.tertiary,
-      fontSize: 20,
+      fontSize: isSmallPhone ? 18 : 20,
       fontWeight: '900',
     },
     warehouseTotalUnit: {
@@ -2133,28 +2172,28 @@ const getStyles = (isDark: boolean) => {
       alignItems: 'center',
       backgroundColor: colors.warningContainer,
       borderRadius: 12,
-      padding: 12,
+      padding: 10,
       borderWidth: 1,
       borderColor: colors.warning,
       gap: 8,
-      marginBottom: 12,
+      marginBottom: 10,
     },
     offlineWarningText: {
       color: colors.warning,
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '600',
       flex: 1,
     },
 
-    // Idle Reticle HUD View (Stitch Screen c117cd3c34f946b58e6b0cdc10e4e912)
+    // Idle Reticle HUD View
     idleStateContainer: {
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 24,
+      paddingVertical: isSmallPhone ? 14 : 24,
     },
     idleReticleBox: {
-      width: 180,
-      height: 180,
+      width: isSmallPhone ? 150 : isTablet ? 220 : 180,
+      height: isSmallPhone ? 150 : isTablet ? 220 : 180,
       borderRadius: 16,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -2162,7 +2201,7 @@ const getStyles = (isDark: boolean) => {
       alignItems: 'center',
       justifyContent: 'center',
       position: 'relative',
-      marginBottom: 20,
+      marginBottom: isSmallPhone ? 14 : 20,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 10 },
       shadowOpacity: 0.4,
@@ -2171,14 +2210,14 @@ const getStyles = (isDark: boolean) => {
     },
     idleBarcodeText: {
       color: colors.primary,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       fontWeight: '700',
       letterSpacing: 2,
       marginTop: 6,
     },
     idleInstructionTitle: {
       color: colors.text,
-      fontSize: 19,
+      fontSize: isSmallPhone ? 16 : isTablet ? 22 : 19,
       fontWeight: '800',
       textAlign: 'center',
       letterSpacing: -0.5,
@@ -2186,21 +2225,21 @@ const getStyles = (isDark: boolean) => {
     },
     idleInstructionDesc: {
       color: colors.textMuted,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       textAlign: 'center',
-      maxWidth: 290,
+      maxWidth: isSmallPhone ? 260 : isTablet ? 380 : 300,
       lineHeight: 18,
-      marginBottom: 22,
+      marginBottom: isSmallPhone ? 16 : 22,
     },
     idleTriggerCameraBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       width: '100%',
-      maxWidth: 320,
+      maxWidth: isTablet ? 380 : 320,
       backgroundColor: colors.secondary,
-      paddingHorizontal: 18,
-      paddingVertical: 14,
+      paddingHorizontal: isSmallPhone ? 14 : 18,
+      paddingVertical: isSmallPhone ? 12 : 14,
       borderRadius: 16,
       shadowColor: colors.secondary,
       shadowOffset: { width: 0, height: 6 },
@@ -2237,7 +2276,7 @@ const getStyles = (isDark: boolean) => {
       borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      marginTop: 22,
+      marginTop: isSmallPhone ? 16 : 22,
     },
     idleDatabaseBadgeText: {
       color: colors.textMuted,
@@ -2254,11 +2293,11 @@ const getStyles = (isDark: boolean) => {
       backgroundColor: colors.surface,
       borderTopWidth: 1,
       borderTopColor: colors.border,
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: Platform.OS === 'android' ? 16 : 24,
+      paddingHorizontal: isSmallPhone ? 10 : 16,
+      paddingTop: isSmallPhone ? 10 : 12,
+      paddingBottom: Platform.OS === 'android' ? (isSmallPhone ? 12 : 16) : 24,
       flexDirection: 'row',
-      gap: 12,
+      gap: isSmallPhone ? 8 : 12,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: -4 },
       shadowOpacity: 0.4,
@@ -2267,7 +2306,7 @@ const getStyles = (isDark: boolean) => {
     },
     bottomSecondaryBtn: {
       flex: 1,
-      height: 48,
+      height: isSmallPhone ? 46 : 50,
       borderRadius: 12,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
@@ -2275,17 +2314,17 @@ const getStyles = (isDark: boolean) => {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 8,
+      gap: 6,
     },
     bottomSecondaryBtnText: {
       color: colors.text,
-      fontSize: 12,
+      fontSize: isSmallPhone ? 11 : 12,
       fontWeight: '800',
       letterSpacing: 0.5,
     },
     bottomPrimaryBtn: {
       flex: 1.2,
-      height: 48,
+      height: isSmallPhone ? 46 : 50,
       borderRadius: 12,
       backgroundColor: colors.tertiary,
       flexDirection: 'row',
@@ -2300,19 +2339,19 @@ const getStyles = (isDark: boolean) => {
     },
     bottomPrimaryBtnText: {
       color: '#fff',
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       fontWeight: '800',
       letterSpacing: 0.5,
     },
     bottomReportBtn: {
       flex: 1.2,
-      height: 48,
+      height: isSmallPhone ? 46 : 50,
       borderRadius: 12,
       backgroundColor: colors.warning,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 8,
+      gap: 6,
       shadowColor: colors.warning,
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.35,
@@ -2325,7 +2364,7 @@ const getStyles = (isDark: boolean) => {
     },
     bottomReportBtnText: {
       color: '#fff',
-      fontSize: 12,
+      fontSize: isSmallPhone ? 11 : 12,
       fontWeight: '800',
       letterSpacing: 0.5,
     },
@@ -2372,17 +2411,20 @@ const getStyles = (isDark: boolean) => {
       fontWeight: '700',
     },
 
-    // Modals (Stitch Screen a0167000d8bd49509a63c586ac7b1d4a)
+    // Modals (Responsive Card on tablets & small screens)
     modalCentered: {
       justifyContent: 'center',
-      margin: 16,
+      alignItems: 'center',
+      margin: isSmallPhone ? 10 : 16,
     },
     modalCardContainer: {
+      width: '100%',
+      maxWidth: 480,
       backgroundColor: colors.surface,
       borderRadius: 24,
       borderWidth: 1,
       borderColor: colors.border,
-      padding: 20,
+      padding: isSmallPhone ? 16 : 20,
       position: 'relative',
       overflow: 'hidden',
       shadowColor: '#000',
@@ -2547,17 +2589,22 @@ const getStyles = (isDark: boolean) => {
       fontWeight: '600',
     },
 
-    // Operator Onboarding Modal Styles
+    // Operator Onboarding Modal Styles (Responsive)
     userNameContainer: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 24,
+      padding: isSmallPhone ? 16 : 24,
       backgroundColor: colors.bg,
     },
+    userNameCard: {
+      width: '100%',
+      maxWidth: 420,
+      alignItems: 'center',
+    },
     operatorAvatarBox: {
-      width: 90,
-      height: 90,
+      width: isSmallPhone ? 72 : 90,
+      height: isSmallPhone ? 72 : 90,
       borderRadius: 24,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
@@ -2568,24 +2615,24 @@ const getStyles = (isDark: boolean) => {
     },
     userNameTitle: {
       color: colors.text,
-      fontSize: 26,
+      fontSize: isSmallPhone ? 22 : 26,
       fontWeight: '900',
       letterSpacing: -0.5,
       marginBottom: 6,
     },
     userNameSubtitle: {
       color: colors.textMuted,
-      fontSize: 13,
+      fontSize: isSmallPhone ? 12 : 13,
       textAlign: 'center',
-      marginBottom: 30,
-      maxWidth: 280,
+      marginBottom: 26,
+      maxWidth: 300,
     },
     userNameInput: {
       width: '100%',
       backgroundColor: colors.surface,
       borderRadius: 16,
-      padding: 16,
-      fontSize: 17,
+      padding: isSmallPhone ? 12 : 16,
+      fontSize: isSmallPhone ? 15 : 17,
       color: colors.text,
       borderWidth: 1,
       borderColor: colors.border,
@@ -2595,7 +2642,7 @@ const getStyles = (isDark: boolean) => {
     },
     industrialPrimaryBtn: {
       backgroundColor: colors.secondary,
-      paddingVertical: 16,
+      paddingVertical: isSmallPhone ? 14 : 16,
       borderRadius: 16,
       width: '100%',
       alignItems: 'center',

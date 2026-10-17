@@ -1,6 +1,6 @@
 {
-  "version": "1.0.14",
-  "versionCode": 14,
-  "url": "https://github.com/hasankaynak/FiyatGor/releases/download/v1.0.14/FiyatGor.apk",
-  "releaseNotes": "MD Ticaret Fiyat Gör ve Stok Mobil v1.0.14\n• Ürün adı düzenleme ve barkod eşleme özellikleri Fiyat Gör uygulamasından kaldırıldı (Bu yetkiler yalnızca SayımApp'e devredildi).\n• Tam ekran 'Yeni Barkod Okut' butonu ve saf fiyat/stok sorgulama modu aktifleştirildi.\n• Stitch arayüzü ve performans optimizasyonları korundu."
+  "version": "1.0.15",
+  "versionCode": 15,
+  "url": "https://github.com/hasankaynak/FiyatGor/releases/download/v1.0.15/FiyatGor.apk",
+  "releaseNotes": "MD Ticaret Fiyat Gör ve Stok Mobil v1.0.15\n• Tamamen responsive arayüz (320px el terminalleri, akıllı telefonlar ve tabletler için uyarlandı).\n• 2x2 ve 4 sütunlu esnek teknik detay ızgarası (barkodlar kesilmez).\n• Dinamik ölçeklenen fiyat alanı (taşma yapmaz).\n• Yatay kaydırılabilir hızlı arama etiketleri.\n• Tablet ve geniş ekranlar için merkezlenmiş kurumsal terminal kabuğu."
 }

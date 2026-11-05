@@ -1,6 +1,6 @@
 {
-  "version": "1.0.15",
-  "versionCode": 15,
-  "url": "https://github.com/hasankaynak/FiyatGor/releases/download/v1.0.15/FiyatGor.apk",
-  "releaseNotes": "MD Ticaret Fiyat Gör ve Stok Mobil v1.0.15\n• Tamamen responsive arayüz (320px el terminalleri, akıllı telefonlar ve tabletler için uyarlandı).\n• 2x2 ve 4 sütunlu esnek teknik detay ızgarası (barkodlar kesilmez).\n• Dinamik ölçeklenen fiyat alanı (taşma yapmaz).\n• Yatay kaydırılabilir hızlı arama etiketleri.\n• Tablet ve geniş ekranlar için merkezlenmiş kurumsal terminal kabuğu."
+  "version": "1.0.16",
+  "versionCode": 16,
+  "url": "https://github.com/hasankaynak/FiyatGor/releases/download/v1.0.16/FiyatGor.apk",
+  "releaseNotes": "MD Ticaret Fiyat Gör ve Stok Mobil v1.0.16\n• Apple Human Interface Guidelines (HIG) arayüz mimarisi ve zarafeti entegre edildi.\n• OLED uyumlu saf siyah (#000000) zemin ve iOS Inset Grouped kart/tablo sistemi.\n• Native iOS UISearchBar tarzı yumuşak arama alanı ve SF tipografi hiyerarşisi.\n• Apple Store / Wallet sadeliğinde hero fiyat alanı ve tabular para birimi gösterimi.\n• Apple Code Scanner vizör ve iOS Sheet modal sunum standartları."
 }

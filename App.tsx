@@ -5,7 +5,6 @@ import {
   Text,
   View,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
   Alert,
   Vibration,
@@ -17,10 +16,10 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
   useWindowDimensions,
   useColorScheme
 } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as SQLite from 'expo-sqlite';
@@ -31,8 +30,6 @@ import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
-
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // MİKRO ERP SQL SORGUSU
 const MIKRO_SQL_QUERY = `
@@ -73,8 +70,8 @@ const GITHUB_REPO = 'FiyatGor';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const GITHUB_RAW_VERSION_URL = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/version.json`;
 const FALLBACK_UPDATE_URL = 'http://185.136.205.19:3000/updates/version.json';
-const CURRENT_VERSION = '1.0.16';
-const CURRENT_VERSION_CODE = 16;
+const CURRENT_VERSION = '1.0.17';
+const CURRENT_VERSION_CODE = 17;
 
 const parseVersion = (v: string): number[] => {
   const clean = (v || '').replace(/^v/i, '').trim();
@@ -113,16 +110,44 @@ const normalizeText = (text: string) => {
     .toLowerCase();
 };
 
-export default function App() {
+function FiyatGorApp() {
+  const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isCompact = windowWidth < 360;
+  const isSmallPhone = windowWidth < 390;
+  const isShortScreen = windowHeight < 740;
   const isTablet = windowWidth >= 600;
-  const isSmallPhone = windowWidth < 380;
   const isLandscape = windowWidth > windowHeight;
+
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? 28 : 44);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 16);
+  const safeInsets = { topInset, bottomInset, leftInset: insets.left, rightInset: insets.right };
+
+  const cameraHeight = isLandscape
+    ? Math.max(150, Math.min(windowHeight * 0.42, 220))
+    : Math.max(185, Math.min(windowHeight * (isTablet ? 0.34 : 0.28), 260));
+  const reticleHeight = Math.min(cameraHeight * 0.48, isTablet ? 140 : 108);
+  const idleBoxSize = isCompact || isShortScreen ? 128 : isTablet ? 176 : 152;
+  const idleInnerInset = 14;
 
   const colorScheme = useColorScheme();
   const [manualTheme, setManualTheme] = useState<'system' | 'dark' | 'light'>('dark');
   const isDark = manualTheme === 'system' ? colorScheme === 'dark' : manualTheme === 'dark';
-  const styles = getStyles(isDark, windowWidth, windowHeight, isTablet, isSmallPhone, isLandscape);
+  const styles = getStyles(
+    isDark,
+    windowWidth,
+    windowHeight,
+    isCompact,
+    isSmallPhone,
+    isShortScreen,
+    isTablet,
+    isLandscape,
+    safeInsets,
+    cameraHeight,
+    reticleHeight,
+    idleBoxSize,
+    idleInnerInset
+  );
   const colors = getThemeColors(isDark);
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -687,30 +712,32 @@ export default function App() {
   // Kullanıcı adı Setup Modalı
   if (showUserNameModal) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-        <View style={styles.userNameContainer}>
-          <View style={styles.userNameCard}>
-            <View style={styles.operatorAvatarBox}>
-              <Ionicons name="person-outline" size={isSmallPhone ? 40 : 48} color={colors.primary} />
+      <View style={styles.container}>
+        <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor="transparent" translucent />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.userNameContainer} keyboardShouldPersistTaps="handled">
+            <View style={styles.userNameCard}>
+              <View style={styles.operatorAvatarBox}>
+                <Ionicons name="person-outline" size={isCompact ? 38 : isSmallPhone ? 42 : 48} color={colors.primary} />
+              </View>
+              <Text style={styles.userNameTitle}>Operatör Girişi</Text>
+              <Text style={styles.userNameSubtitle}>Eksik ürün bildirimleri ve işlemler için adınızı belirleyin</Text>
+              <TextInput
+                style={styles.userNameInput}
+                placeholder="Adınız Soyadınız..."
+                placeholderTextColor={colors.textOutline}
+                value={userNameInput}
+                onChangeText={setUserNameInput}
+                autoCapitalize="words"
+                autoFocus
+              />
+              <TouchableOpacity style={styles.industrialPrimaryBtn} onPress={saveUserName}>
+                <Text style={styles.industrialPrimaryBtnText}>KAYDET VE BAŞLA</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.userNameTitle}>Operatör Girişi</Text>
-            <Text style={styles.userNameSubtitle}>Eksik ürün bildirimleri ve işlemler için adınızı belirleyin</Text>
-            <TextInput
-              style={styles.userNameInput}
-              placeholder="Adınız Soyadınız..."
-              placeholderTextColor={colors.textOutline}
-              value={userNameInput}
-              onChangeText={setUserNameInput}
-              autoCapitalize="words"
-              autoFocus
-            />
-            <TouchableOpacity style={styles.industrialPrimaryBtn} onPress={saveUserName}>
-              <Text style={styles.industrialPrimaryBtnText}>KAYDET VE BAŞLA</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
     );
   }
 
@@ -718,7 +745,7 @@ export default function App() {
   if (isDownloading) {
     return (
       <View style={styles.centered}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor="transparent" translucent />
         <View style={styles.downloadIconRing}>
           <Ionicons name="cloud-download-outline" size={60} color={colors.primary} />
         </View>
@@ -739,54 +766,71 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <View style={styles.container}>
+      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor="transparent" translucent />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.appShellWrapper}>
 
-        {/* 1. TOP APPLE NAVIGATION HEADER BAR */}
+        {/* 1. TOP APPLE NAVIGATION HEADER BAR (2-Zone Zero-Overflow) */}
         <View style={styles.headerBar}>
-          {product && scanned ? (
-            <TouchableOpacity style={styles.headerSquareBtn} onPress={resetScan} activeOpacity={0.7}>
-              <Ionicons name="chevron-back" size={22} color={colors.primary} />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.terminalBadgeBox}>
-              <View style={styles.terminalIconWrap}>
-                <Ionicons name="person-circle-outline" size={22} color={colors.primary} />
-              </View>
-              <View style={{ marginLeft: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={styles.livePulseDot} />
-                  <Text style={styles.terminalStatusText}>ÇEVRİMİÇİ</Text>
+          <View style={styles.headerLeftZone}>
+            {product && scanned ? (
+              <>
+                <TouchableOpacity style={styles.headerSquareBtn} onPress={resetScan} activeOpacity={0.7}>
+                  <Ionicons name="chevron-back" size={isCompact ? 20 : 22} color={colors.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, minWidth: 0, marginLeft: 8 }}
+                  onPress={() => checkForUpdates(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.headerTitleText} numberOfLines={1} ellipsizeMode="tail">Ürün Detayı</Text>
+                  <Text style={styles.terminalNameText} numberOfLines={1} ellipsizeMode="tail">
+                    MD Ticaret · v{CURRENT_VERSION}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={styles.terminalIconWrap}>
+                  <Ionicons name="person-circle-outline" size={isCompact ? 20 : 22} color={colors.primary} />
+                  <View
+                    style={[
+                      styles.avatarStatusDot,
+                      { backgroundColor: isConnected ? colors.tertiary : colors.warning }
+                    ]}
+                  />
                 </View>
-                <Text style={styles.terminalNameText} numberOfLines={1}>
-                  {userName ? userName : 'Operatör'}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* Center Version & Title Pill */}
-          <TouchableOpacity 
-            style={styles.headerCenterPill} 
-            onPress={() => checkForUpdates(false)} 
-            activeOpacity={0.7}
-          >
-            <Text style={styles.headerTitleText}>MD Ticaret</Text>
-            <View style={styles.headerVersionPill}>
-              <Text style={styles.headerVersionText}>v{CURRENT_VERSION}</Text>
-            </View>
-          </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, minWidth: 0, marginLeft: isCompact ? 8 : 10 }}
+                  onPress={() => checkForUpdates(false)}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.headerTitleText} numberOfLines={1} ellipsizeMode="tail">MD Ticaret</Text>
+                    {!isCompact && (
+                      <View style={styles.headerVersionPill}>
+                        <Text style={styles.headerVersionText}>v{CURRENT_VERSION}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.terminalNameText} numberOfLines={1} ellipsizeMode="tail">
+                    {userName ? userName : 'Operatör'}
+                    {isCompact ? ` · v${CURRENT_VERSION}` : ` · ${isConnected ? 'Çevrimiçi' : 'Çevrimdışı'}`}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
 
           {/* Right Action Buttons */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={styles.headerRightZone}>
             <TouchableOpacity
               style={styles.headerSquareBtn}
               onPress={() => setManualTheme(prev => prev === 'dark' ? 'light' : 'dark')}
               activeOpacity={0.7}
             >
-              <Ionicons name={isDark ? "moon" : "sunny"} size={19} color={isDark ? colors.warning : "#D97706"} />
+              <Ionicons name={isDark ? "moon" : "sunny"} size={isCompact ? 17 : 19} color={isDark ? colors.warning : "#D97706"} />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -796,7 +840,7 @@ export default function App() {
               activeOpacity={0.7}
             >
               <Animated.View style={isSyncing ? { transform: [{ rotate: spin }] } : undefined}>
-                <Ionicons name="sync" size={19} color={isSyncing ? "#fff" : colors.primary} />
+                <Ionicons name="sync" size={isCompact ? 17 : 19} color={isSyncing ? "#fff" : colors.primary} />
               </Animated.View>
             </TouchableOpacity>
 
@@ -811,15 +855,23 @@ export default function App() {
               }}
               activeOpacity={0.8}
             >
-              <Ionicons name={cameraActive ? "barcode" : "barcode-outline"} size={20} color={cameraActive ? colors.primaryText : colors.primary} />
-              <Text style={[styles.scannerToggleBtnText, cameraActive && { color: colors.primaryText }]}>
+              <Ionicons
+                name={cameraActive ? "barcode" : "barcode-outline"}
+                size={isCompact ? 17 : 19}
+                color={cameraActive ? colors.primaryText : colors.primary}
+              />
+              <Text
+                style={[styles.scannerToggleBtnText, cameraActive && { color: colors.primaryText }]}
+                maxFontSizeMultiplier={1.15}
+                numberOfLines={1}
+              >
                 {cameraActive ? 'KAPAT' : 'TARA'}
               </Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* 2. LIVE CAMERA HUD VIEWFINDER (Stitch Reticle & Laser Guides) */}
+        {/* 2. LIVE CAMERA HUD VIEWFINDER (Apple Code Scanner Viewfinder) */}
         {cameraActive && (
           <View style={styles.cameraBox}>
             <CameraView style={StyleSheet.absoluteFill} onBarcodeScanned={scanned ? undefined : handleBarCodeScanned} enableTorch={torch} />
@@ -829,14 +881,16 @@ export default function App() {
             <View style={styles.viewfinderTopHUD} pointerEvents="none">
               <View style={styles.viewfinderBadge}>
                 <View style={styles.viewfinderPingDot} />
-                <Text style={styles.viewfinderBadgeText}>KAMERA AKTİF • OTO-ODAK</Text>
+                <Text style={styles.viewfinderBadgeText} numberOfLines={1}>
+                  {isCompact ? 'KAMERA AKTİF' : 'KAMERA AKTİF • OTO-ODAK'}
+                </Text>
               </View>
               <View style={styles.viewfinderFormatTag}>
                 <Text style={styles.viewfinderFormatText}>EAN-13 / QR</Text>
               </View>
             </View>
 
-            {/* Target Reticle Box with Cyan Brackets */}
+            {/* Target Reticle Box with Brackets */}
             <View style={styles.reticleOverlay} pointerEvents="none">
               <View style={styles.targetReticleFrame}>
                 {/* 4 Corner Brackets */}
@@ -853,7 +907,7 @@ export default function App() {
                       transform: [{
                         translateY: laserAnim.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [10, isTablet ? 135 : 105]
+                          outputRange: [8, Math.max(24, reticleHeight - 10)]
                         })
                       }]
                     }
@@ -866,7 +920,9 @@ export default function App() {
                 </View>
               </View>
               <View style={styles.viewfinderAlignPill}>
-                <Text style={styles.viewfinderAlignText}>BARKODU ÇERÇEVEYE HİZALAYIN</Text>
+                <Text style={styles.viewfinderAlignText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                  BARKODU ÇERÇEVEYE HİZALAYIN
+                </Text>
               </View>
             </View>
 
@@ -898,15 +954,15 @@ export default function App() {
           </View>
         )}
 
-        {/* 3. INDUSTRIAL SEARCH & RESULTS CONTAINER */}
+        {/* 3. SEARCH & RESULTS CONTAINER */}
         <View style={styles.contentContainer}>
           <View style={styles.searchBarWrapper}>
             <View style={styles.searchIconBox}>
-              <Ionicons name="search" size={20} color={colors.textOutline} />
+              <Ionicons name="search" size={isCompact ? 18 : 20} color={colors.textOutline} />
             </View>
             <TextInput
               style={styles.searchInput}
-              placeholder="Ad, stok kodu veya barkod ile ara..."
+              placeholder="Ürün, stok kodu veya barkod..."
               placeholderTextColor={colors.textOutline}
               value={searchQuery}
               onChangeText={handleSearch}
@@ -923,24 +979,24 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          {/* Quick Context Filter Chips (Stitch Specification) */}
+          {/* Quick Context Filter Chips */}
           {!product && searchResults.length === 0 && (
             <ScrollView 
               horizontal 
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.quickChipsScroll}
-              style={{ maxHeight: 44, marginBottom: 10 }}
+              style={{ flexGrow: 0, marginBottom: isCompact ? 6 : 10 }}
             >
               <TouchableOpacity style={styles.quickChip} onPress={() => handleSearch('DURU')} activeOpacity={0.7}>
-                <Ionicons name="time-outline" size={14} color={colors.primary} />
+                <Ionicons name="time-outline" size={isCompact ? 13 : 14} color={colors.primary} />
                 <Text style={styles.quickChipText}>HIZLI ARAMA</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.quickChip} onPress={() => handleSync(false)} activeOpacity={0.7}>
-                <Ionicons name="cloud-done-outline" size={14} color={colors.tertiary} />
+                <Ionicons name="cloud-done-outline" size={isCompact ? 13 : 14} color={colors.tertiary} />
                 <Text style={[styles.quickChipText, { color: colors.tertiary }]}>ERP AKTİF</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.quickChip} onPress={() => checkForUpdates(false)} activeOpacity={0.7}>
-                <Ionicons name="shield-checkmark-outline" size={14} color={colors.textOutline} />
+                <Ionicons name="shield-checkmark-outline" size={isCompact ? 13 : 14} color={colors.textOutline} />
                 <Text style={styles.quickChipText}>GÜNCELLEME</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -952,11 +1008,11 @@ export default function App() {
               data={searchResults}
               keyExtractor={(item) => item.barcode}
               style={styles.searchResultsList}
-              contentContainerStyle={{ paddingBottom: 20 }}
+              contentContainerStyle={{ paddingBottom: bottomInset + 20 }}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.searchResultCard} onPress={() => selectProduct(item)} activeOpacity={0.7}>
-                  <View style={{ flex: 1, marginRight: 12 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <View style={{ flex: 1, minWidth: 0, marginRight: isCompact ? 8 : 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
                       <Text style={styles.searchItemCode}>{item.stock_code}</Text>
                       {!!item.iskonto_orani && (
                         <View style={styles.discountBadgeSmall}>
@@ -964,7 +1020,7 @@ export default function App() {
                         </View>
                       )}
                     </View>
-                    <Text style={styles.searchResultName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.searchResultName} numberOfLines={2}>{item.name}</Text>
                     <Text style={styles.searchResultPrice}>
                       {formatPrice(item.price)} <Text style={{ fontSize: 13, color: colors.primary }}>{item.currency}</Text>
                     </Text>
@@ -981,17 +1037,21 @@ export default function App() {
               keyboardShouldPersistTaps="handled"
             />
           ) : (
-            <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 110 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={{ flexGrow: 1, paddingBottom: product ? (isCompact ? 86 : 94) + bottomInset : 16 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
               
-              {/* 4. PRODUCT DETAIL VIEW (Stitch Screen 1fe78bd95d1f4d2cb066d97d48bbf35d) */}
+              {/* 4. PRODUCT DETAIL VIEW */}
               {product ? (
                 <View style={styles.detailContainer}>
                   
                   {/* Context Bar */}
                   <View style={styles.detailContextBar}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="barcode-outline" size={16} color={colors.primary} />
-                      <Text style={styles.detailContextText}>MİKRO ERP STOK KARTI</Text>
+                      <Text style={styles.detailContextText} numberOfLines={1}>MİKRO ERP STOK KARTI</Text>
                     </View>
                     <View style={styles.detailOnlinePill}>
                       <View style={styles.livePulseDot} />
@@ -1015,6 +1075,7 @@ export default function App() {
                       <Text 
                         style={styles.heroPriceNumber}
                         adjustsFontSizeToFit
+                        minimumFontScale={0.55}
                         numberOfLines={1}
                       >
                         {formatPrice(product.price)}
@@ -1033,51 +1094,96 @@ export default function App() {
 
                   {/* Product Title Card */}
                   <View style={styles.productTitleCard}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.productCategoryLabel}>TANIMLI ÜRÜN ADI</Text>
                       <Text style={styles.productNameText}>{product.name}</Text>
                     </View>
                   </View>
 
-                  {/* 4-Column Spec Grid */}
-                  <View style={styles.specGridRow}>
-                    <TouchableOpacity 
-                      style={styles.specGridCell} 
-                      onPress={() => showToast(`Barkod: ${product.barcode}`)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.specGridCellHeader}>
-                        <Text style={styles.specCellLabel}>BARKOD</Text>
-                        <Ionicons name="copy-outline" size={13} color={colors.primary} />
+                  {/* 4-Column Spec Grid (Explicit 2x2 on phones, 4-across on tablets) */}
+                  {isTablet ? (
+                    <View style={styles.specGridRow}>
+                      <TouchableOpacity 
+                        style={styles.specGridCell} 
+                        onPress={() => showToast(`Barkod: ${product.barcode}`)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.specGridCellHeader}>
+                          <Text style={styles.specCellLabel}>BARKOD</Text>
+                          <Ionicons name="copy-outline" size={13} color={colors.primary} />
+                        </View>
+                        <Text style={styles.specCellValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
+                          {product.barcode}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.specGridCell}>
+                        <Text style={styles.specCellLabel}>STOK KODU</Text>
+                        <Text style={[styles.specCellValue, { color: colors.primary }]} numberOfLines={1} ellipsizeMode="middle">
+                          {product.stock_code}
+                        </Text>
                       </View>
-                      <Text style={styles.specCellValue} numberOfLines={1}>{product.barcode}</Text>
-                    </TouchableOpacity>
 
-                    <View style={styles.specGridCell}>
-                      <Text style={styles.specCellLabel}>STOK KODU</Text>
-                      <Text style={[styles.specCellValue, { color: colors.primary }]} numberOfLines={1}>{product.stock_code}</Text>
-                    </View>
+                      <View style={styles.specGridCell}>
+                        <Text style={styles.specCellLabel}>BİRİM</Text>
+                        <Text style={styles.specCellValue} numberOfLines={1}>{product.unit || 'Adet'}</Text>
+                      </View>
 
-                    <View style={styles.specGridCell}>
-                      <Text style={styles.specCellLabel}>BİRİM</Text>
-                      <Text style={styles.specCellValue}>{product.unit || 'Adet'}</Text>
+                      <View style={styles.specGridCell}>
+                        <Text style={styles.specCellLabel}>İSKONTO</Text>
+                        <Text style={[styles.specCellValue, { color: colors.danger, fontWeight: '800' }]} numberOfLines={1}>
+                          {product.iskonto_orani || '%0'}
+                        </Text>
+                      </View>
                     </View>
+                  ) : (
+                    <View style={styles.specGridStack}>
+                      <View style={styles.specGridRow}>
+                        <TouchableOpacity 
+                          style={styles.specGridCell} 
+                          onPress={() => showToast(`Barkod: ${product.barcode}`)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.specGridCellHeader}>
+                            <Text style={styles.specCellLabel}>BARKOD</Text>
+                            <Ionicons name="copy-outline" size={13} color={colors.primary} />
+                          </View>
+                          <Text style={styles.specCellValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
+                            {product.barcode}
+                          </Text>
+                        </TouchableOpacity>
 
-                    <View style={styles.specGridCell}>
-                      <Text style={styles.specCellLabel}>İSKONTO</Text>
-                      <Text style={[styles.specCellValue, { color: colors.danger, fontWeight: '800' }]}>
-                        {product.iskonto_orani || '%0'}
-                      </Text>
+                        <View style={styles.specGridCell}>
+                          <Text style={styles.specCellLabel}>STOK KODU</Text>
+                          <Text style={[styles.specCellValue, { color: colors.primary }]} numberOfLines={1} ellipsizeMode="middle">
+                            {product.stock_code}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.specGridRow}>
+                        <View style={styles.specGridCell}>
+                          <Text style={styles.specCellLabel}>BİRİM</Text>
+                          <Text style={styles.specCellValue} numberOfLines={1}>{product.unit || 'Adet'}</Text>
+                        </View>
+
+                        <View style={styles.specGridCell}>
+                          <Text style={styles.specCellLabel}>İSKONTO</Text>
+                          <Text style={[styles.specCellValue, { color: colors.danger, fontWeight: '800' }]} numberOfLines={1}>
+                            {product.iskonto_orani || '%0'}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                  </View>
+                  )}
 
                   {/* Warehouse Inventory Container (DEPO STOKLARI) */}
                   {showDepoStok && product.name !== 'Ürün Bulunamadı' && (
                     <View style={styles.warehouseCard}>
                       <View style={styles.warehouseHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Ionicons name="cube-outline" size={18} color={colors.tertiary} />
-                          <Text style={styles.warehouseTitle}>DEPO STOKLARI</Text>
+                          <Text style={styles.warehouseTitle} numberOfLines={1}>DEPO STOKLARI</Text>
                         </View>
                         <View style={styles.warehouseHeaderTag}>
                           <Text style={styles.warehouseHeaderTagText}>AKTİF ENVANTER</Text>
@@ -1100,9 +1206,9 @@ export default function App() {
 
                       {depoStoklar.map((depo: any, index: number) => (
                         <View key={`depo-${index}`} style={styles.warehouseRow}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                             <View style={[styles.warehouseStatusDot, (depo.Miktar || 0) <= 0 && { backgroundColor: colors.danger }]} />
-                            <View style={{ marginLeft: 8, flex: 1 }}>
+                            <View style={{ marginLeft: 8, flex: 1, minWidth: 0 }}>
                               <Text style={styles.warehouseName} numberOfLines={1}>{depo.DepoAdi || `Depo ${depo.DepoNo}`}</Text>
                               <Text style={styles.warehouseCode}>Depo No: {depo.DepoNo}</Text>
                             </View>
@@ -1118,11 +1224,11 @@ export default function App() {
 
                       {depoStoklar.length > 0 && (
                         <View style={styles.warehouseTotalRow}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <Ionicons name="layers-outline" size={18} color={colors.tertiary} />
-                            <Text style={styles.warehouseTotalLabel}>TOPLAM STOK</Text>
+                            <Text style={styles.warehouseTotalLabel} numberOfLines={1}>TOPLAM STOK</Text>
                           </View>
-                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                          <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
                             <Text style={styles.warehouseTotalValue}>
                               {formatPrice(depoStoklar.reduce((sum: number, d: any) => sum + (d.Miktar || 0), 0))}
                             </Text>
@@ -1141,31 +1247,38 @@ export default function App() {
                   )}
                 </View>
               ) : (
-                /* 5. IDLE STATE & RETICLE HUD (Stitch Screen c117cd3c34f946b58e6b0cdc10e4e912) */
+                /* 5. IDLE STATE & RETICLE HUD */
                 <View style={styles.idleStateContainer}>
                   {/* Holographic Reticle Box */}
                   <View style={styles.idleReticleBox}>
-                    <View style={[styles.cornerBracket, styles.bracketTL]} />
-                    <View style={[styles.cornerBracket, styles.bracketTR]} />
-                    <View style={[styles.cornerBracket, styles.bracketBL]} />
-                    <View style={[styles.cornerBracket, styles.bracketBR]} />
+                    <View style={styles.idleReticleInner}>
+                      <View style={[styles.cornerBracket, styles.bracketTL]} />
+                      <View style={[styles.cornerBracket, styles.bracketTR]} />
+                      <View style={[styles.cornerBracket, styles.bracketBL]} />
+                      <View style={[styles.cornerBracket, styles.bracketBR]} />
 
-                    <Animated.View 
-                      style={[
-                        styles.laserScanLine, 
-                        {
-                          transform: [{
-                            translateY: laserAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [15, isSmallPhone ? 105 : isTablet ? 170 : 130]
-                            })
-                          }]
-                        }
-                      ]} 
-                    />
+                      <Animated.View 
+                        style={[
+                          styles.laserScanLine, 
+                          {
+                            transform: [{
+                              translateY: laserAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [6, Math.max(24, idleBoxSize - idleInnerInset * 2 - 10)]
+                              })
+                            }]
+                          }
+                        ]} 
+                      />
 
-                    <Ionicons name="barcode-outline" size={72} color={colors.primary} style={{ opacity: 0.85 }} />
-                    <Text style={styles.idleBarcodeText}>8690123456789</Text>
+                      <Ionicons
+                        name="barcode-outline"
+                        size={isCompact || isShortScreen ? 52 : 64}
+                        color={colors.primary}
+                        style={{ opacity: 0.85 }}
+                      />
+                      <Text style={styles.idleBarcodeText}>8690123456789</Text>
+                    </View>
                   </View>
 
                   <Text style={styles.idleInstructionTitle}>Ürün veya Raf Barkodu Okutun</Text>
@@ -1183,13 +1296,13 @@ export default function App() {
                     }}
                     activeOpacity={0.85}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 8 }}>
                       <View style={styles.idleCameraIconSquare}>
                         <Ionicons name="camera" size={20} color="#fff" />
                       </View>
-                      <View>
-                        <Text style={styles.idleCameraBtnTitle}>KAMERA İLE TARA</Text>
-                        <Text style={styles.idleCameraBtnSubtitle}>Otomatik Lazer Odaklama</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.idleCameraBtnTitle} numberOfLines={1}>KAMERA İLE TARA</Text>
+                        <Text style={styles.idleCameraBtnSubtitle} numberOfLines={1}>Otomatik Lazer Odaklama</Text>
                       </View>
                     </View>
                     <Ionicons name="arrow-forward" size={20} color="#fff" />
@@ -1197,7 +1310,12 @@ export default function App() {
 
                   <View style={styles.idleDatabaseBadge}>
                     <Ionicons name="checkmark-circle" size={15} color={colors.tertiary} />
-                    <Text style={styles.idleDatabaseBadgeText}>
+                    <Text
+                      style={styles.idleDatabaseBadgeText}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.82}
+                    >
                       Çevrimdışı Veritabanı Güncel <Text style={{ color: colors.text, fontWeight: '700' }}>({totalProducts.toLocaleString('tr-TR')} Kayıt)</Text>
                     </Text>
                   </View>
@@ -1206,14 +1324,21 @@ export default function App() {
             </ScrollView>
           )}
 
-          {/* 6. STICKY BOTTOM INDUSTRIAL COMMAND DECK (Product Detail / Scan Next) */}
+          {/* 6. STICKY BOTTOM COMMAND DECK (Product Detail / Scan Next) */}
           {product && (
             <View style={styles.bottomCommandDeck}>
               {product.name === 'Ürün Bulunamadı' ? (
                 <>
                   <TouchableOpacity style={styles.bottomSecondaryBtn} onPress={resetScan} activeOpacity={0.7}>
-                    <Ionicons name="barcode-outline" size={18} color={colors.primary} />
-                    <Text style={styles.bottomSecondaryBtnText}>YENİ OKUTMA</Text>
+                    <Ionicons name="barcode-outline" size={isCompact ? 16 : 18} color={colors.primary} />
+                    <Text
+                      style={styles.bottomSecondaryBtnText}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      YENİ OKUTMA
+                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity 
@@ -1222,8 +1347,13 @@ export default function App() {
                     disabled={isAlreadyReported}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="paper-plane-outline" size={18} color="#fff" />
-                    <Text style={styles.bottomReportBtnText}>
+                    <Ionicons name="paper-plane-outline" size={isCompact ? 16 : 18} color="#fff" />
+                    <Text
+                      style={styles.bottomReportBtnText}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
                       {isAlreadyReported ? 'BİLDİRİLDİ' : 'EKSİK BARKOD BİLDİR'}
                     </Text>
                   </TouchableOpacity>
@@ -1235,7 +1365,14 @@ export default function App() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="barcode-outline" size={20} color="#fff" />
-                  <Text style={[styles.bottomPrimaryBtnText, { fontSize: 14, letterSpacing: 0.8 }]}>YENİ BARKOD OKUT</Text>
+                  <Text
+                    style={[styles.bottomPrimaryBtnText, { fontSize: isCompact ? 13 : 14, letterSpacing: 0.6 }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                  >
+                    YENİ BARKOD OKUT
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1246,7 +1383,12 @@ export default function App() {
         {!searchQuery && !product && !reportModalVisible && (
           <View style={styles.footerContainer}>
             <TouchableOpacity onPress={() => checkForUpdates(false)} activeOpacity={0.7}>
-              <Text style={styles.footerBrandText}>
+              <Text
+                style={styles.footerBrandText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
                 Fiyat Gör Enterprise • Powered by Hasan Kaynak • v{CURRENT_VERSION}
               </Text>
             </TouchableOpacity>
@@ -1264,7 +1406,7 @@ export default function App() {
         </Animated.View>
       )}
 
-      {/* 7. EKSİK ÜRÜN BİLDİR MODALI (Stitch Screen a0167000d8bd49509a63c586ac7b1d4a) */}
+      {/* 7. EKSİK ÜRÜN BİLDİR MODALI */}
       <Modal
         isVisible={reportModalVisible}
         onBackdropPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
@@ -1278,102 +1420,119 @@ export default function App() {
             {/* Apple Sheet Grabber */}
             <View style={styles.sheetGrabber} />
 
-            <View style={styles.modalCardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={styles.modalWarningIconBox}>
-                  <Ionicons name="warning-outline" size={22} color={colors.warning} />
-                </View>
-                <View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.modalMainTitle}>Eksik Ürün Bildir</Text>
-                    <View style={styles.modalTagErpYok}>
-                      <Text style={styles.modalTagErpYokText}>ERP'de Yok</Text>
-                    </View>
+            <ScrollView bounces={false} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={styles.modalCardHeader}>
+                <View style={{ flex: 1, minWidth: 0, marginRight: 8, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={styles.modalWarningIconBox}>
+                    <Ionicons name="warning-outline" size={22} color={colors.warning} />
                   </View>
-                  <Text style={styles.modalSubtitle}>Sistemde eşleşmeyen barkod kaydı bildirimi</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <Text style={styles.modalMainTitle}>Eksik Ürün Bildir</Text>
+                      <View style={styles.modalTagErpYok}>
+                        <Text style={styles.modalTagErpYokText}>ERP'de Yok</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.modalSubtitle}>Sistemde eşleşmeyen barkod kaydı bildirimi</Text>
+                  </View>
                 </View>
-              </View>
-              <TouchableOpacity 
-                style={styles.modalCloseCircleBtn}
-                onPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
-              >
-                <Ionicons name="close" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Scanned Barcode Subheader Pill */}
-            <View style={styles.modalBarcodeStrip}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="barcode-outline" size={18} color={colors.primary} />
-                <Text style={styles.modalBarcodeStripLabel}>Taranan Barkod:</Text>
-              </View>
-              <View style={styles.modalBarcodeValuePill}>
-                <Text style={styles.modalBarcodeValueText}>{product?.barcode}</Text>
-              </View>
-            </View>
-
-            {/* Quick Tag Chips */}
-            <View style={styles.modalQuickTagsRow}>
-              {['Fiyat Etiketi Yok', 'Yeni Gelen Ürün', 'Hatalı Barkod'].map((tag, idx) => (
                 <TouchableOpacity 
-                  key={`tag-${idx}`} 
-                  style={styles.modalQuickTagBtn}
-                  onPress={() => setReportNote(prev => prev ? `${prev} - ${tag}` : tag)}
-                  activeOpacity={0.7}
+                  style={styles.modalCloseCircleBtn}
+                  onPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
                 >
-                  <Text style={styles.modalQuickTagText}>{tag}</Text>
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
-              ))}
-            </View>
+              </View>
 
-            <TextInput
-              style={styles.modalTextInput}
-              placeholder="Reyon, ürün adı veya eksiklik detayını yazın..."
-              placeholderTextColor={colors.textOutline}
-              multiline
-              value={reportNote}
-              onChangeText={setReportNote}
-              autoFocus={true}
-            />
-
-            {/* Telegram Target Notification Banner */}
-            <View style={styles.modalTelegramBanner}>
-              <Ionicons name="paper-plane" size={16} color="#229ED9" />
-              <Text style={styles.modalTelegramBannerText}>
-                Bildirim anında <Text style={{ color: '#fff', fontWeight: '700' }}>Merkez ERP Masası</Text> ve Telegram grubuna iletilecektir.
-              </Text>
-            </View>
-
-            {/* Actions */}
-            <TouchableOpacity 
-              style={styles.modalSendActionBtn} 
-              onPress={sendReport} 
-              disabled={isReporting}
-              activeOpacity={0.85}
-            >
-              {isReporting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="send" size={16} color="#fff" />
-                  <Text style={styles.modalSendActionBtnText}>MERKEZE VE TELEGRAM'A BİLDİR</Text>
+              {/* Scanned Barcode Subheader Pill */}
+              <View style={styles.modalBarcodeStrip}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="barcode-outline" size={18} color={colors.primary} />
+                  <Text style={styles.modalBarcodeStripLabel}>Taranan Barkod:</Text>
                 </View>
-              )}
-            </TouchableOpacity>
+                <View style={styles.modalBarcodeValuePill}>
+                  <Text style={styles.modalBarcodeValueText}>{product?.barcode}</Text>
+                </View>
+              </View>
 
-            <TouchableOpacity 
-              style={styles.modalDismissBtn} 
-              onPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.modalDismissBtnText}>Vazgeç</Text>
-            </TouchableOpacity>
+              {/* Quick Tag Chips */}
+              <View style={styles.modalQuickTagsRow}>
+                {['Fiyat Etiketi Yok', 'Yeni Gelen Ürün', 'Hatalı Barkod'].map((tag, idx) => (
+                  <TouchableOpacity 
+                    key={`tag-${idx}`} 
+                    style={styles.modalQuickTagBtn}
+                    onPress={() => setReportNote(prev => prev ? `${prev} - ${tag}` : tag)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.modalQuickTagText}>{tag}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder="Reyon, ürün adı veya eksiklik detayını yazın..."
+                placeholderTextColor={colors.textOutline}
+                multiline
+                value={reportNote}
+                onChangeText={setReportNote}
+                autoFocus={true}
+              />
+
+              {/* Telegram Target Notification Banner */}
+              <View style={styles.modalTelegramBanner}>
+                <Ionicons name="paper-plane" size={16} color="#229ED9" />
+                <Text style={styles.modalTelegramBannerText}>
+                  Bildirim anında <Text style={{ color: colors.text, fontWeight: '700' }}>Merkez ERP Masası</Text> ve Telegram grubuna iletilecektir.
+                </Text>
+              </View>
+
+              {/* Actions */}
+              <TouchableOpacity 
+                style={styles.modalSendActionBtn} 
+                onPress={sendReport} 
+                disabled={isReporting}
+                activeOpacity={0.85}
+              >
+                {isReporting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="send" size={16} color="#fff" />
+                    <Text
+                      style={styles.modalSendActionBtnText}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                    >
+                      MERKEZE VE TELEGRAM'A BİLDİR
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.modalDismissBtn} 
+                onPress={() => { Keyboard.dismiss(); setReportModalVisible(false); }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalDismissBtnText}>Vazgeç</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
 
-    </SafeAreaView>
+    </View>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <FiyatGorApp />
+    </SafeAreaProvider>
   );
 }
 
@@ -1438,13 +1597,27 @@ const getThemeColors = (isDark: boolean) => {
 // -------------------------------------------------------------
 // APPLE HIG RESPONSIVE STYLESHEET
 // -------------------------------------------------------------
+type SafeInsets = {
+  topInset: number;
+  bottomInset: number;
+  leftInset: number;
+  rightInset: number;
+};
+
 const getStyles = (
   isDark: boolean,
   windowWidth: number,
   windowHeight: number,
-  isTablet: boolean,
+  isCompact: boolean,
   isSmallPhone: boolean,
-  isLandscape: boolean
+  isShortScreen: boolean,
+  isTablet: boolean,
+  isLandscape: boolean,
+  safeInsets: SafeInsets,
+  cameraHeight: number,
+  reticleHeight: number,
+  idleBoxSize: number,
+  idleInnerInset: number
 ) => {
   const colors = getThemeColors(isDark);
 
@@ -1458,6 +1631,8 @@ const getStyles = (
       width: '100%',
       maxWidth: isTablet ? 720 : undefined,
       alignSelf: 'center',
+      paddingLeft: safeInsets.leftInset,
+      paddingRight: safeInsets.rightInset,
       position: 'relative',
     },
     centered: {
@@ -1465,33 +1640,55 @@ const getStyles = (
       justifyContent: 'center',
       alignItems: 'center',
       backgroundColor: colors.bg,
-      padding: isSmallPhone ? 16 : 24,
+      paddingHorizontal: isSmallPhone ? 16 : 24,
+      paddingTop: safeInsets.topInset + 16,
+      paddingBottom: safeInsets.bottomInset + 16,
     },
 
-    // Apple Navigation Header Bar
+    // Apple Navigation Header Bar (2-Zone Zero-Overflow)
     headerBar: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: isSmallPhone ? 12 : isTablet ? 20 : 16,
-      paddingVertical: isSmallPhone ? 8 : 10,
-      paddingTop: Platform.OS === 'android' ? 44 : 50,
+      paddingHorizontal: isCompact ? 12 : isTablet ? 20 : 16,
+      paddingTop: safeInsets.topInset + (isCompact ? 6 : 8),
+      paddingBottom: isCompact ? 8 : 10,
+      gap: 8,
       backgroundColor: colors.bg,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
       zIndex: 10,
     },
-    terminalBadgeBox: {
+    headerLeftZone: {
+      flex: 1,
+      minWidth: 0,
       flexDirection: 'row',
       alignItems: 'center',
     },
+    headerRightZone: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: isCompact ? 6 : 8,
+      flexShrink: 0,
+    },
     terminalIconWrap: {
-      width: isSmallPhone ? 34 : 38,
-      height: isSmallPhone ? 34 : 38,
-      borderRadius: isSmallPhone ? 10 : 12,
+      width: isCompact ? 34 : 38,
+      height: isCompact ? 34 : 38,
+      borderRadius: isCompact ? 10 : 12,
       backgroundColor: colors.surfaceHigh,
       alignItems: 'center',
       justifyContent: 'center',
+      position: 'relative',
+    },
+    avatarStatusDot: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      borderWidth: 2,
+      borderColor: colors.bg,
     },
     livePulseDot: {
       width: 6,
@@ -1499,36 +1696,24 @@ const getStyles = (
       borderRadius: 3,
       backgroundColor: colors.tertiary,
     },
-    terminalStatusText: {
-      fontSize: 9,
-      fontWeight: '700',
-      color: colors.tertiary,
-      letterSpacing: 0.4,
-    },
     terminalNameText: {
-      fontSize: isSmallPhone ? 12 : 13,
-      fontWeight: '600',
-      color: colors.text,
-      maxWidth: isSmallPhone ? 75 : isTablet ? 180 : 110,
-    },
-    headerCenterPill: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: isSmallPhone ? 4 : 8,
-      paddingVertical: 2,
+      fontSize: isCompact ? 11.5 : 12.5,
+      fontWeight: '500',
+      color: colors.textMuted,
+      marginTop: 1,
     },
     headerTitleText: {
-      fontSize: isSmallPhone ? 15 : isTablet ? 18 : 16,
+      fontSize: isCompact ? 15 : isTablet ? 18 : 16,
       fontWeight: '700',
       color: colors.text,
       letterSpacing: -0.4,
+      flexShrink: 1,
     },
     headerVersionPill: {
       backgroundColor: colors.fill,
-      paddingHorizontal: 7,
-      paddingVertical: 2,
-      borderRadius: 10,
-      marginTop: 2,
+      paddingHorizontal: 6,
+      paddingVertical: 1.5,
+      borderRadius: 8,
     },
     headerVersionText: {
       fontSize: 10,
@@ -1537,8 +1722,8 @@ const getStyles = (
       letterSpacing: 0.3,
     },
     headerSquareBtn: {
-      width: isSmallPhone ? 36 : 38,
-      height: isSmallPhone ? 36 : 38,
+      width: isCompact ? 34 : 38,
+      height: isCompact ? 34 : 38,
       borderRadius: 19,
       backgroundColor: colors.fill,
       alignItems: 'center',
@@ -1550,9 +1735,9 @@ const getStyles = (
     scannerToggleBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
-      height: isSmallPhone ? 36 : 38,
-      paddingHorizontal: isSmallPhone ? 10 : 13,
+      gap: isCompact ? 4 : 5,
+      height: isCompact ? 34 : 38,
+      paddingHorizontal: isCompact ? 9 : 12,
       borderRadius: 19,
       backgroundColor: colors.fill,
     },
@@ -1560,7 +1745,7 @@ const getStyles = (
       backgroundColor: colors.primary,
     },
     scannerToggleBtnText: {
-      fontSize: isSmallPhone ? 11 : 12,
+      fontSize: isCompact ? 11 : 12,
       fontWeight: '600',
       color: colors.primary,
       letterSpacing: 0.3,
@@ -1568,9 +1753,9 @@ const getStyles = (
 
     // Apple Code Scanner HUD Viewfinder
     cameraBox: {
-      height: isLandscape ? Math.min(windowHeight * 0.45, 260) : Math.min(windowHeight * (isTablet ? 0.34 : 0.28), 280),
-      margin: isSmallPhone ? 10 : 14,
-      borderRadius: 24,
+      height: cameraHeight,
+      margin: isCompact ? 10 : 14,
+      borderRadius: 22,
       overflow: 'hidden',
       position: 'relative',
       backgroundColor: '#000',
@@ -1583,20 +1768,22 @@ const getStyles = (
     },
     viewfinderTopHUD: {
       position: 'absolute',
-      top: 12,
-      left: 14,
-      right: 14,
+      top: 10,
+      left: 12,
+      right: 12,
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      gap: 6,
       zIndex: 10,
     },
     viewfinderBadge: {
       flexDirection: 'row',
       alignItems: 'center',
+      flexShrink: 1,
       gap: 6,
       backgroundColor: 'rgba(0, 0, 0, 0.65)',
-      paddingHorizontal: 12,
+      paddingHorizontal: 10,
       paddingVertical: 5,
       borderRadius: 20,
     },
@@ -1617,6 +1804,7 @@ const getStyles = (
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 8,
+      flexShrink: 0,
     },
     viewfinderFormatText: {
       color: '#FFFFFF',
@@ -1629,26 +1817,27 @@ const getStyles = (
       alignItems: 'center',
     },
     targetReticleFrame: {
-      width: Math.min(windowWidth * 0.68, isTablet ? 360 : 250),
-      height: Math.min(windowWidth * 0.34, isTablet ? 150 : 120),
+      width: Math.min(windowWidth * 0.68, isTablet ? 360 : 240),
+      height: reticleHeight,
       position: 'relative',
       justifyContent: 'center',
       alignItems: 'center',
     },
     cornerBracket: {
       position: 'absolute',
-      width: 20,
-      height: 20,
+      width: 16,
+      height: 16,
       borderColor: colors.primary,
     },
-    bracketTL: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 6 },
-    bracketTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 6 },
-    bracketBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 6 },
-    bracketBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 6 },
+    bracketTL: { top: 0, left: 0, borderTopWidth: 2.5, borderLeftWidth: 2.5, borderTopLeftRadius: 4 },
+    bracketTR: { top: 0, right: 0, borderTopWidth: 2.5, borderRightWidth: 2.5, borderTopRightRadius: 4 },
+    bracketBL: { bottom: 0, left: 0, borderBottomWidth: 2.5, borderLeftWidth: 2.5, borderBottomLeftRadius: 4 },
+    bracketBR: { bottom: 0, right: 0, borderBottomWidth: 2.5, borderRightWidth: 2.5, borderBottomRightRadius: 4 },
     laserScanLine: {
       position: 'absolute',
-      left: 12,
-      right: 12,
+      top: 0,
+      left: 8,
+      right: 8,
       height: 2,
       backgroundColor: colors.primary,
       shadowColor: colors.primary,
@@ -1660,10 +1849,11 @@ const getStyles = (
       opacity: 0.4,
     },
     viewfinderAlignPill: {
-      marginTop: 14,
+      marginTop: 10,
+      maxWidth: '92%',
       backgroundColor: 'rgba(0, 0, 0, 0.65)',
-      paddingHorizontal: 14,
-      paddingVertical: 5,
+      paddingHorizontal: 12,
+      paddingVertical: 4,
       borderRadius: 16,
     },
     viewfinderAlignText: {
@@ -1674,8 +1864,8 @@ const getStyles = (
     },
     viewfinderBottomControls: {
       position: 'absolute',
-      bottom: 12,
-      right: 14,
+      bottom: 10,
+      right: 12,
       zIndex: 10,
     },
     hudTorchBtn: {
@@ -1716,8 +1906,8 @@ const getStyles = (
     // Main Content Area
     contentContainer: {
       flex: 1,
-      paddingHorizontal: isSmallPhone ? 12 : 16,
-      paddingTop: isSmallPhone ? 8 : 12,
+      paddingHorizontal: isCompact ? 12 : 16,
+      paddingTop: isCompact ? 8 : 12,
     },
 
     // Apple UISearchBar Style Search Bar
@@ -1726,18 +1916,20 @@ const getStyles = (
       alignItems: 'center',
       backgroundColor: colors.fill,
       borderRadius: 12,
-      height: isSmallPhone ? 42 : 46,
-      paddingHorizontal: 12,
-      marginBottom: isSmallPhone ? 8 : 10,
+      height: isCompact ? 42 : 46,
+      paddingHorizontal: isCompact ? 10 : 12,
+      marginBottom: isCompact ? 8 : 10,
     },
     searchIconBox: {
       marginRight: 8,
     },
     searchInput: {
       flex: 1,
+      minWidth: 0,
       color: colors.text,
-      fontSize: 15,
+      fontSize: isCompact ? 13.5 : 15,
       fontWeight: '400',
+      paddingVertical: 0,
     },
     clearSearchBtn: {
       padding: 4,
@@ -1756,21 +1948,21 @@ const getStyles = (
     },
     quickChipsScroll: {
       flexDirection: 'row',
-      gap: 8,
+      gap: isCompact ? 6 : 8,
       paddingRight: 16,
     },
     quickChip: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
+      gap: isCompact ? 4 : 5,
       backgroundColor: colors.fill,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: isCompact ? 9 : 12,
+      paddingVertical: isCompact ? 5 : 6,
       borderRadius: 16,
     },
     quickChipText: {
       color: colors.textMuted,
-      fontSize: 11,
+      fontSize: isCompact ? 10.5 : 11,
       fontWeight: '600',
       letterSpacing: 0.2,
     },
@@ -1807,7 +1999,7 @@ const getStyles = (
     },
     searchResultName: {
       color: colors.text,
-      fontSize: isSmallPhone ? 13 : 15,
+      fontSize: isCompact ? 13 : isSmallPhone ? 14 : 15,
       fontWeight: '600',
       marginBottom: 3,
     },
@@ -1819,11 +2011,13 @@ const getStyles = (
     },
     stokBadge: {
       backgroundColor: colors.tertiaryContainer,
-      paddingHorizontal: 10,
+      paddingHorizontal: isCompact ? 8 : 10,
       paddingVertical: 5,
       borderRadius: 12,
       alignItems: 'center',
       marginRight: 6,
+      flexShrink: 0,
+      minWidth: isCompact ? 54 : 64,
     },
     stokBadgeZero: {
       backgroundColor: colors.dangerContainer,
@@ -1847,12 +2041,13 @@ const getStyles = (
     // Product Detail Card
     detailContainer: {
       flex: 1,
-      paddingBottom: 20,
+      paddingBottom: 16,
     },
     detailContextBar: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      gap: 8,
       marginBottom: 10,
     },
     detailContextText: {
@@ -1864,6 +2059,7 @@ const getStyles = (
     detailOnlinePill: {
       flexDirection: 'row',
       alignItems: 'center',
+      flexShrink: 0,
       gap: 5,
       backgroundColor: colors.tertiaryContainer,
       paddingHorizontal: 8,
@@ -1881,10 +2077,10 @@ const getStyles = (
     heroPriceCard: {
       backgroundColor: colors.surface,
       borderRadius: 20,
-      padding: isSmallPhone ? 16 : isTablet ? 24 : 20,
+      padding: isCompact ? 14 : isSmallPhone ? 16 : isTablet ? 24 : 20,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      marginBottom: isSmallPhone ? 10 : 12,
+      marginBottom: isCompact ? 10 : 12,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: isDark ? 0.35 : 0.06,
@@ -1895,6 +2091,7 @@ const getStyles = (
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      gap: 8,
     },
     heroPriceLabel: {
       color: colors.textMuted,
@@ -1919,20 +2116,22 @@ const getStyles = (
       flexDirection: 'row',
       alignItems: 'baseline',
       justifyContent: 'center',
-      marginVertical: isSmallPhone ? 8 : 12,
+      marginVertical: isCompact ? 6 : isSmallPhone ? 8 : 12,
     },
     heroPriceNumber: {
       color: colors.text,
-      fontSize: isSmallPhone ? 38 : isTablet ? 56 : 48,
+      fontSize: isCompact ? 34 : isSmallPhone ? 40 : isTablet ? 54 : 46,
       fontWeight: '800',
       letterSpacing: -1.2,
       fontVariant: ['tabular-nums'],
+      flexShrink: 1,
     },
     heroPriceCurrency: {
       color: colors.primary,
-      fontSize: isSmallPhone ? 18 : isTablet ? 24 : 22,
+      fontSize: isCompact ? 17 : isSmallPhone ? 19 : isTablet ? 24 : 22,
       fontWeight: '700',
       marginLeft: 6,
+      flexShrink: 0,
     },
     heroPriceDatePill: {
       backgroundColor: colors.fill,
@@ -1954,10 +2153,10 @@ const getStyles = (
       alignItems: 'flex-start',
       backgroundColor: colors.surface,
       borderRadius: 16,
-      padding: 16,
+      padding: isCompact ? 13 : 16,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
-      marginBottom: isSmallPhone ? 10 : 12,
+      marginBottom: isCompact ? 10 : 12,
     },
     productCategoryLabel: {
       color: colors.primary,
@@ -1968,9 +2167,9 @@ const getStyles = (
     },
     productNameText: {
       color: colors.text,
-      fontSize: isSmallPhone ? 15 : isTablet ? 19 : 17,
+      fontSize: isCompact ? 15 : isSmallPhone ? 16 : isTablet ? 19 : 17,
       fontWeight: '700',
-      lineHeight: isSmallPhone ? 21 : isTablet ? 26 : 24,
+      lineHeight: isCompact ? 21 : isSmallPhone ? 22 : isTablet ? 26 : 24,
       letterSpacing: -0.3,
     },
     titleEditBtn: {
@@ -1982,19 +2181,22 @@ const getStyles = (
       justifyContent: 'center',
     },
 
-    // 4-Column Spec Grid (Responsive 2x2 on phones, 4-across on tablets)
+    // 4-Column Spec Grid (Explicit 2x2 on phones, 4-across on tablets)
+    specGridStack: {
+      gap: 8,
+      marginBottom: isCompact ? 10 : 12,
+    },
     specGridRow: {
       flexDirection: 'row',
-      flexWrap: isTablet ? 'nowrap' : 'wrap',
-      gap: 8,
-      marginBottom: isSmallPhone ? 10 : 12,
+      gap: isTablet ? 10 : 8,
+      marginBottom: isTablet ? 12 : 0,
     },
     specGridCell: {
-      width: isTablet ? undefined : '48.7%',
-      flex: isTablet ? 1 : undefined,
+      flex: 1,
+      minWidth: 0,
       backgroundColor: colors.surface,
       borderRadius: 14,
-      padding: isSmallPhone ? 10 : 12,
+      padding: isCompact ? 10 : 12,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
       justifyContent: 'center',
@@ -2013,7 +2215,7 @@ const getStyles = (
     },
     specCellValue: {
       color: colors.text,
-      fontSize: isSmallPhone ? 13 : 14,
+      fontSize: isCompact ? 12.5 : isSmallPhone ? 13 : 14,
       fontWeight: '600',
     },
 
@@ -2024,14 +2226,15 @@ const getStyles = (
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
       overflow: 'hidden',
-      marginBottom: isSmallPhone ? 10 : 12,
+      marginBottom: isCompact ? 10 : 12,
     },
     warehouseHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      gap: 8,
       backgroundColor: colors.surfaceHigh,
-      paddingHorizontal: 16,
+      paddingHorizontal: isCompact ? 12 : 16,
       paddingVertical: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.borderSubtle,
@@ -2047,6 +2250,7 @@ const getStyles = (
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: 6,
+      flexShrink: 0,
     },
     warehouseHeaderTagText: {
       color: colors.tertiary,
@@ -2058,6 +2262,7 @@ const getStyles = (
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      paddingHorizontal: isCompact ? 12 : 16,
       paddingVertical: 18,
       gap: 8,
     },
@@ -2065,12 +2270,14 @@ const getStyles = (
       color: colors.textMuted,
       fontSize: 13,
       fontWeight: '400',
+      flexShrink: 1,
     },
     warehouseRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
+      gap: 8,
+      paddingHorizontal: isCompact ? 12 : 16,
       paddingVertical: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.borderSubtle,
@@ -2083,7 +2290,7 @@ const getStyles = (
     },
     warehouseName: {
       color: colors.text,
-      fontSize: isSmallPhone ? 13 : 14,
+      fontSize: isCompact ? 13 : 14,
       fontWeight: '500',
       flexShrink: 1,
     },
@@ -2095,6 +2302,7 @@ const getStyles = (
     warehouseAmountBadge: {
       flexDirection: 'row',
       alignItems: 'baseline',
+      flexShrink: 0,
       gap: 3,
       backgroundColor: colors.fill,
       paddingHorizontal: 10,
@@ -2117,8 +2325,9 @@ const getStyles = (
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      gap: 8,
       backgroundColor: colors.surfaceHigh,
-      paddingHorizontal: 16,
+      paddingHorizontal: isCompact ? 12 : 16,
       paddingVertical: 14,
     },
     warehouseTotalLabel: {
@@ -2159,35 +2368,41 @@ const getStyles = (
     idleStateContainer: {
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: isSmallPhone ? 18 : 28,
+      paddingVertical: isCompact || isShortScreen ? 10 : 24,
     },
     idleReticleBox: {
-      width: isSmallPhone ? 140 : isTablet ? 180 : 160,
-      height: isSmallPhone ? 140 : isTablet ? 180 : 160,
-      borderRadius: 32,
+      width: idleBoxSize,
+      height: idleBoxSize,
+      borderRadius: 24,
       backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
-      alignItems: 'center',
-      justifyContent: 'center',
-      position: 'relative',
-      marginBottom: 20,
+      padding: idleInnerInset,
+      overflow: 'hidden',
+      marginBottom: isCompact || isShortScreen ? 14 : 20,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: isDark ? 0.3 : 0.05,
       shadowRadius: 14,
       elevation: 4,
     },
+    idleReticleInner: {
+      flex: 1,
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+    },
     idleBarcodeText: {
       color: colors.primary,
-      fontSize: 13,
+      fontSize: isCompact ? 11.5 : 13,
       fontWeight: '600',
-      letterSpacing: 1.5,
-      marginTop: 8,
+      letterSpacing: 1.2,
+      marginTop: 6,
     },
     idleInstructionTitle: {
       color: colors.text,
-      fontSize: isSmallPhone ? 18 : isTablet ? 24 : 21,
+      fontSize: isCompact ? 17 : isSmallPhone ? 19 : isTablet ? 24 : 21,
       fontWeight: '700',
       textAlign: 'center',
       letterSpacing: -0.4,
@@ -2195,21 +2410,21 @@ const getStyles = (
     },
     idleInstructionDesc: {
       color: colors.textMuted,
-      fontSize: isSmallPhone ? 13 : 14,
+      fontSize: isCompact ? 12.5 : 13.5,
       textAlign: 'center',
-      maxWidth: isSmallPhone ? 270 : isTablet ? 400 : 320,
-      lineHeight: 20,
-      marginBottom: 24,
+      maxWidth: isTablet ? 400 : 320,
+      lineHeight: isCompact ? 18 : 20,
+      marginBottom: isCompact || isShortScreen ? 16 : 22,
     },
     idleTriggerCameraBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       width: '100%',
-      maxWidth: isTablet ? 380 : 320,
+      maxWidth: isTablet ? 380 : 340,
       backgroundColor: colors.primary,
-      paddingHorizontal: 18,
-      paddingVertical: 14,
+      paddingHorizontal: isCompact ? 14 : 18,
+      paddingVertical: isCompact ? 12 : 14,
       borderRadius: 14,
       shadowColor: colors.primary,
       shadowOffset: { width: 0, height: 4 },
@@ -2227,7 +2442,7 @@ const getStyles = (
     },
     idleCameraBtnTitle: {
       color: '#FFFFFF',
-      fontSize: 14,
+      fontSize: isCompact ? 13.5 : 14,
       fontWeight: '700',
       letterSpacing: 0.3,
     },
@@ -2240,18 +2455,20 @@ const getStyles = (
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
+      maxWidth: '100%',
       backgroundColor: colors.surface,
-      paddingHorizontal: 14,
+      paddingHorizontal: isCompact ? 10 : 14,
       paddingVertical: 7,
       borderRadius: 16,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
-      marginTop: 24,
+      marginTop: isCompact || isShortScreen ? 14 : 22,
     },
     idleDatabaseBadgeText: {
       color: colors.textMuted,
       fontSize: 11,
       fontWeight: '500',
+      flexShrink: 1,
     },
 
     // Sticky Bottom Command Deck (Apple Floating Action Bar)
@@ -2263,11 +2480,11 @@ const getStyles = (
       backgroundColor: isDark ? 'rgba(28, 28, 30, 0.96)' : 'rgba(255, 255, 255, 0.96)',
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
-      paddingHorizontal: isSmallPhone ? 12 : 16,
-      paddingTop: 12,
-      paddingBottom: Platform.OS === 'android' ? (isSmallPhone ? 14 : 16) : 28,
+      paddingHorizontal: isCompact ? 12 : 16,
+      paddingTop: 10,
+      paddingBottom: safeInsets.bottomInset + 10,
       flexDirection: 'row',
-      gap: isSmallPhone ? 8 : 12,
+      gap: isCompact ? 8 : 12,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: -4 },
       shadowOpacity: 0.15,
@@ -2276,7 +2493,8 @@ const getStyles = (
     },
     bottomSecondaryBtn: {
       flex: 1,
-      height: 50,
+      height: isCompact ? 46 : 50,
+      paddingHorizontal: isCompact ? 8 : 12,
       borderRadius: 14,
       backgroundColor: colors.fill,
       flexDirection: 'row',
@@ -2286,13 +2504,14 @@ const getStyles = (
     },
     bottomSecondaryBtnText: {
       color: colors.text,
-      fontSize: 13,
+      fontSize: isCompact ? 11.5 : 13,
       fontWeight: '600',
       letterSpacing: 0.3,
     },
     bottomPrimaryBtn: {
       flex: 1.2,
-      height: 50,
+      height: isCompact ? 46 : 50,
+      paddingHorizontal: isCompact ? 8 : 12,
       borderRadius: 14,
       backgroundColor: colors.primary,
       flexDirection: 'row',
@@ -2313,7 +2532,8 @@ const getStyles = (
     },
     bottomReportBtn: {
       flex: 1.2,
-      height: 50,
+      height: isCompact ? 46 : 50,
+      paddingHorizontal: isCompact ? 8 : 12,
       borderRadius: 14,
       backgroundColor: colors.warning,
       flexDirection: 'row',
@@ -2332,7 +2552,7 @@ const getStyles = (
     },
     bottomReportBtnText: {
       color: '#FFFFFF',
-      fontSize: 13,
+      fontSize: isCompact ? 11.5 : 13,
       fontWeight: '700',
       letterSpacing: 0.3,
     },
@@ -2340,22 +2560,26 @@ const getStyles = (
     // Footer
     footerContainer: {
       alignItems: 'center',
-      paddingVertical: 12,
+      paddingTop: 10,
+      paddingBottom: safeInsets.bottomInset + 6,
+      paddingHorizontal: isCompact ? 12 : 16,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.borderSubtle,
       backgroundColor: colors.bg,
     },
     footerBrandText: {
       color: colors.textMuted,
-      fontSize: 11,
+      fontSize: isCompact ? 10.5 : 11,
       fontWeight: '500',
-      letterSpacing: 0.3,
+      letterSpacing: 0.2,
+      textAlign: 'center',
     },
 
     // Floating Action Toast (Apple Capsule Notification)
     floatingToast: {
       position: 'absolute',
-      top: Platform.OS === 'android' ? 55 : 65,
+      top: safeInsets.topInset + 10,
+      maxWidth: windowWidth - 28,
       alignSelf: 'center',
       flexDirection: 'row',
       alignItems: 'center',
@@ -2377,6 +2601,7 @@ const getStyles = (
       color: colors.text,
       fontSize: 13,
       fontWeight: '600',
+      flexShrink: 1,
     },
 
     // Apple Sheet Presentation Modal
@@ -2387,6 +2612,7 @@ const getStyles = (
     modalCardContainer: {
       width: '100%',
       maxWidth: 540,
+      maxHeight: windowHeight * 0.88,
       alignSelf: 'center',
       backgroundColor: colors.surface,
       borderTopLeftRadius: 24,
@@ -2395,7 +2621,9 @@ const getStyles = (
       borderBottomRightRadius: isTablet ? 24 : 0,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      padding: isSmallPhone ? 16 : 20,
+      paddingTop: 14,
+      paddingHorizontal: isCompact ? 14 : 20,
+      paddingBottom: safeInsets.bottomInset + 12,
       position: 'relative',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: -8 },
@@ -2409,7 +2637,7 @@ const getStyles = (
       borderRadius: 2.5,
       backgroundColor: isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.2)',
       alignSelf: 'center',
-      marginBottom: 16,
+      marginBottom: 14,
     },
     modalTopAmberStrip: {
       display: 'none',
@@ -2421,12 +2649,13 @@ const getStyles = (
       backgroundColor: colors.fill,
       alignItems: 'center',
       justifyContent: 'center',
+      flexShrink: 0,
     },
     modalCardHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 16,
+      marginBottom: 14,
     },
     modalWarningIconBox: {
       width: 40,
@@ -2461,6 +2690,7 @@ const getStyles = (
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      gap: 8,
       backgroundColor: colors.fill,
       paddingHorizontal: 12,
       paddingVertical: 10,
@@ -2528,6 +2758,7 @@ const getStyles = (
     },
     modalSendActionBtn: {
       height: 50,
+      paddingHorizontal: 12,
       borderRadius: 14,
       backgroundColor: colors.warning,
       alignItems: 'center',
@@ -2557,10 +2788,12 @@ const getStyles = (
 
     // Operator Onboarding Modal Styles (Apple Setup Sheet)
     userNameContainer: {
-      flex: 1,
+      flexGrow: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: isSmallPhone ? 16 : 24,
+      paddingHorizontal: isCompact ? 16 : 24,
+      paddingTop: safeInsets.topInset + 20,
+      paddingBottom: safeInsets.bottomInset + 20,
       backgroundColor: colors.bg,
     },
     userNameCard: {
